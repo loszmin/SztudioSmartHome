@@ -1,0 +1,90 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/* Identyfikacja wizualna Sztudio Smart Home */
+@theme {
+  --color-midnight: #080d18;
+  --color-navy: #111c30;
+  --color-primary: #2589e8;
+  --color-silver: #b8c5d6;
+  --color-success: #27c37a;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  /* Odcienie pochodne */
+  --color-deep: #0b1322;
+  --color-raised: #17243c;
+  --color-line: #1f2d47;
+  --color-line-strong: #2b3c5c;
+  --color-ink: #e9eef6;
+  --color-muted: #8494ab;
+  --color-primary-soft: #5aa9f2;
+
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --shadow-glow: 0 0 0 1px rgb(37 137 232 / 0.35), 0 0 24px -6px rgb(37 137 232 / 0.45);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-midnight);
+    -webkit-tap-highlight-color: transparent;
+  }
+  html[data-density='compact'] {
+    font-size: 14.5px;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--color-midnight);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  input[type='date']::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    cursor: pointer;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility label-caps {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
