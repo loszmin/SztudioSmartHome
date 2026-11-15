@@ -1,0 +1,29 @@
+# Nakładka do testów end-to-end bez sprzętu:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+# Dodaje testowe źródło RTSP (obraz kontrolny ffmpeg) w osobnej sieci „kamer”,
+# do której dołączone są Core i go2rtc – tak jak do sieci LAN z prawdziwymi kamerami.
+services:
+  rtsp-source:
+    image: alexxit/go2rtc:1.9.15
+    restart: unless-stopped
+    environment:
+      E2E_RTSP_PASSWORD: ${E2E_RTSP_PASSWORD:-e2e-haslo-kamery}
+    volumes:
+      - ./docker/e2e/rtsp-source.yaml:/config/go2rtc.yaml:ro
+    networks:
+      cameras:
+        ipv4_address: 192.168.250.10
+
+  core:
+    networks: [internal, cameras]
+    environment:
+      SZTUDIO_MONITOR_INTERVAL_SECONDS: 5
+
+  go2rtc:
+    networks: [internal, cameras]
+
+networks:
+  cameras:
+    ipam:
+      config:
+        - subnet: 192.168.250.0/24

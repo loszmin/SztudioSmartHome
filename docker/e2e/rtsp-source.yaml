@@ -1,0 +1,16 @@
+# Testowe źródło RTSP dla testów end-to-end: obraz kontrolny generowany przez ffmpeg,
+# udostępniany po RTSP z uwierzytelnianiem. To NIE jest kamera – służy do sprawdzenia
+# całej ścieżki RTSP → go2rtc → WebRTC → przeglądarka bez sprzętu.
+api:
+  listen: ""
+webrtc:
+  listen: ""
+rtsp:
+  listen: ":8554"
+  username: "kamera"
+  password: "${E2E_RTSP_PASSWORD}"
+streams:
+  main: "exec:ffmpeg -re -f lavfi -i testsrc2=size=1280x720:rate=15 -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -pix_fmt yuv420p -rtsp_transport tcp -f rtsp {output}"
+  sub: "exec:ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=10 -c:v libx264 -preset ultrafast -tune zerolatency -g 20 -pix_fmt yuv420p -rtsp_transport tcp -f rtsp {output}"
+log:
+  level: warn

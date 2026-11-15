@@ -1,4 +1,5 @@
 import { HardDrive } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { EmptyState, QueryState } from '@/components/StateViews';
 import { ConnectionBadge } from '@/components/Status';
 import { useCameras, useDevices } from '@/hooks/useCoreData';
@@ -48,8 +49,9 @@ export function BcsSection() {
       </QueryState>
       <div className="mt-4">
         <Note>
-          Adres, login i hasło rejestratora konfiguruje się po stronie Sztudio Core – panel nie przechowuje danych logowania do
-          urządzeń. Edycja integracji z poziomu panelu nie jest dostępna w wersji 1.0.
+          Rejestratory dodaje się i testuje na ekranie{' '}
+          <Link to="/rejestratory" className="font-medium text-primary-soft hover:text-ink">Rejestratory</Link>. Integracja korzysta
+          z protokołów standardowych (ONVIF, RTSP) i nie była jeszcze sprawdzana z rzeczywistym rejestratorem BCS.
         </Note>
       </div>
     </SettingsSection>

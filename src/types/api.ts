@@ -85,6 +85,259 @@ export interface Camera {
   recording: boolean;
   /** null = urządzenie nie było jeszcze widziane. */
   lastSeenAt: IsoDateString | null;
+  /** Wyłączona kamera nie jest monitorowana ani udostępniana. */
+  enabled?: boolean;
+  /** Stan strumienia w go2rtc. */
+  streamState?: StreamRegistration;
+  streamProfile?: string;
+  recorderId?: string;
+  /** Diagnostyka ostatnich prób połączenia. */
+  lastAttemptAt?: IsoDateString;
+  lastSuccessAt?: IsoDateString;
+  errorCode?: string;
+  errorMessage?: string;
+  responseTimeMs?: number;
+}
+
+export type StreamRegistration = 'not_configured' | 'disabled' | 'registered' | 'error';
+
+/** Pełna konfiguracja kamery – tylko dla administratora. Hasło nigdy nie jest zwracane. */
+export interface CameraConfig extends Camera {
+  host?: string;
+  rtspPort?: number;
+  rtspPath?: string;
+  onvifPort?: number;
+  username?: string;
+  hasPassword: boolean;
+  vendor: string;
+  model: string;
+}
+
+/** Dane zapisywane przy tworzeniu / edycji kamery. `null` czyści wartość, pominięcie = bez zmian. */
+export interface CameraInput {
+  name?: string;
+  location?: string;
+  source?: CameraSource;
+  host?: string | null;
+  rtspPort?: number | null;
+  rtspPath?: string | null;
+  /** Alternatywa dla pól: pełny adres rtsp://… */
+  rtspUrl?: string;
+  username?: string | null;
+  /** Pominięte = bez zmian; pusty tekst = usunięcie hasła. */
+  password?: string;
+  onvifPort?: number | null;
+  streamProfile?: string | null;
+  resolution?: string | null;
+  fps?: number | null;
+  vendor?: string;
+  model?: string;
+  enabled?: boolean;
+}
+
+export interface CameraTestInput extends CameraInput {
+  /** Edycja: pozwala użyć zapisanego hasła, gdy pole hasła jest puste. */
+  cameraId?: string;
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  code: string;
+  message: string;
+  responseTimeMs?: number;
+  tracks: Array<{ media: string; codec: string }>;
+  server?: string;
+}
+
+/* ---------- ONVIF ---------- */
+
+export type DiscoveryMode = 'multicast' | 'subnet';
+
+export interface OnvifDiscoveredDevice {
+  ip: string;
+  onvifPort: number;
+  name?: string;
+  hardware?: string;
+  location?: string;
+  likelyBcs: boolean;
+  alreadyAdded: boolean;
+}
+
+export interface OnvifDiscoverResponse {
+  mode: DiscoveryMode;
+  scannedHosts: number;
+  devices: OnvifDiscoveredDevice[];
+}
+
+export interface OnvifProfile {
+  token: string;
+  name: string;
+  videoSource?: string;
+  encoding?: string;
+  resolution?: string;
+  fps?: number;
+  rtspPort?: number;
+  rtspPath?: string;
+  error?: string;
+}
+
+export interface OnvifDevice {
+  manufacturer?: string;
+  model?: string;
+  firmware?: string;
+  serialNumber?: string;
+  profiles: OnvifProfile[];
+}
+
+export interface OnvifInspectInput {
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  cameraId?: string;
+  recorderId?: string;
+}
+
+/* ---------- Rejestratory ---------- */
+
+export type RecorderSeries = 'bcs_point' | 'bcs_line' | 'other';
+export type ProtocolState = 'ok' | 'auth_failed' | 'closed' | 'timeout' | 'error' | 'skipped';
+
+export interface ProtocolCheck {
+  protocol: 'http' | 'rtsp' | 'onvif';
+  port: number;
+  state: ProtocolState;
+  detail: string;
+  responseTimeMs?: number;
+  server?: string;
+}
+
+export interface Recorder {
+  id: string;
+  name: string;
+  vendor: string;
+  series: RecorderSeries;
+  model: string;
+  firmware?: string;
+  ipAddress?: string;
+  port?: number;
+  rtspPort?: number;
+  onvifPort?: number;
+  rtspPathTemplate?: string;
+  channels?: number;
+  username?: string;
+  hasPassword: boolean;
+  status: ConnectionStatus;
+  lastSeenAt: IsoDateString | null;
+  protocols?: ProtocolCheck[];
+  lastAttemptAt?: IsoDateString;
+  lastSuccessAt?: IsoDateString;
+  errorCode?: string;
+  errorMessage?: string;
+  responseTimeMs?: number;
+}
+
+export interface RecorderInput {
+  name?: string;
+  series?: RecorderSeries;
+  model?: string;
+  ipAddress?: string | null;
+  port?: number | null;
+  rtspPort?: number | null;
+  onvifPort?: number | null;
+  rtspPathTemplate?: string | null;
+  channels?: number | null;
+  username?: string | null;
+  password?: string;
+}
+
+export interface RecorderTestInput {
+  recorderId?: string;
+  series?: RecorderSeries;
+  ipAddress: string;
+  port?: number | null;
+  rtspPort?: number | null;
+  onvifPort?: number | null;
+  username?: string | null;
+  password?: string;
+}
+
+export interface RecorderProbe {
+  reachable: boolean;
+  code: string;
+  message: string;
+  checks: ProtocolCheck[];
+  device?: { manufacturer?: string; model?: string; firmware?: string; serialNumber?: string };
+  adapter: RecorderSeries;
+  /** Czy adapter tej serii był sprawdzony z rzeczywistym urządzeniem. */
+  hardwareVerified: boolean;
+}
+
+export interface ChannelProfile {
+  name: string;
+  token?: string;
+  encoding?: string;
+  resolution?: string;
+  fps?: number;
+  rtspPort?: number;
+  rtspPath?: string;
+  error?: string;
+}
+
+export interface RecorderChannel {
+  number: number;
+  name: string;
+  /** `onvif` – odczytane z rejestratora; `template` – wyliczone z szablonu (niezweryfikowane). */
+  origin: 'onvif' | 'template';
+  profiles: ChannelProfile[];
+  cameraId?: string;
+}
+
+export interface ChannelImportItem {
+  number: number;
+  name?: string;
+  profile?: string;
+}
+
+export interface IntegrationInfo {
+  adapters: Array<{ series: RecorderSeries; label: string; hardwareVerified: boolean }>;
+  requiredInformation: string[];
+  unsupportedFeatures: string[];
+}
+
+/* ---------- Diagnostyka ---------- */
+
+export interface Go2rtcStatus {
+  state: 'running' | 'error' | 'not_configured';
+  version?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  checkedAt?: IsoDateString;
+  streams?: number;
+}
+
+export interface DeviceDiagnostics {
+  id: string;
+  kind: 'camera' | 'recorder';
+  name: string;
+  address?: string;
+  status: ConnectionStatus;
+  enabled: boolean;
+  streamState?: StreamRegistration;
+  streamConsumers?: number;
+  streamConnected?: boolean;
+  lastAttemptAt?: IsoDateString;
+  lastSuccessAt?: IsoDateString;
+  errorCode?: string;
+  errorMessage?: string;
+  responseTimeMs?: number;
+}
+
+export interface Diagnostics {
+  generatedAt: IsoDateString;
+  go2rtc: Go2rtcStatus;
+  monitor: { enabled: boolean; intervalSeconds: number; lastRunAt?: IsoDateString; lastDurationMs?: number };
+  devices: DeviceDiagnostics[];
 }
 
 /* ---------- Alarmy ---------- */

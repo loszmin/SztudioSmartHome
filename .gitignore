@@ -15,3 +15,6 @@ __pycache__
 *.egg-info
 .pytest_cache
 .ruff_cache
+
+# Certyfikaty i klucze (generowane lokalnie)
+certs/

@@ -32,7 +32,40 @@ def main(argv: list[str] | None = None) -> None:
     reset = commands.add_parser("reset-password", help="Ustawia nowe hasło użytkownika")
     reset.add_argument("--username", required=True)
     commands.add_parser("seed-demo", help="Ładuje dane demonstracyjne (tylko poza produkcją, do pustej bazy)")
+    certs = commands.add_parser("ensure-certs", help="Tworzy lub odnawia lokalny certyfikat HTTPS panelu")
+    certs.add_argument("--dir", default=os.environ.get("SZTUDIO_TLS_DIR", "/certs"))
+    certs.add_argument(
+        "--ca-dir",
+        default=os.environ.get("SZTUDIO_TLS_CA_DIR"),
+        help="Katalog klucza urzędu (domyślnie --dir)",
+    )
+    certs.add_argument(
+        "--hosts", default=os.environ.get("SZTUDIO_TLS_HOSTS", ""), help="Nazwy i adresy IP po przecinku"
+    )
     args = parser.parse_args(argv)
+
+    if args.command == "ensure-certs":
+        # Nie wymaga bazy danych ani pozostałej konfiguracji Core.
+        from pathlib import Path
+
+        from app.certs import ensure_certificates
+
+        report = ensure_certificates(
+            Path(args.dir),
+            [host for host in args.hosts.split(",") if host.strip()],
+            ca_key_directory=Path(args.ca_dir) if args.ca_dir else None,
+        )
+        messages = {
+            "provided": "Używam certyfikatu dostarczonego przez użytkownika",
+            "kept": "Certyfikat serwera jest aktualny",
+            "issued": "Wystawiono certyfikat serwera",
+        }
+        print(
+            f"{messages[report.action]} (ważny do {report.expires_at:%Y-%m-%d}) dla: {', '.join(report.hosts)}"
+        )
+        if report.ca_fingerprint:
+            print(f"Odcisk SHA-256 lokalnego urzędu (sztudio-ca.crt): {report.ca_fingerprint}")
+        return
 
     settings = get_settings()
     engine = make_engine(settings.database_url)

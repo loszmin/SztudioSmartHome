@@ -1,26 +1,24 @@
 import { Cctv } from 'lucide-react';
-import { Field, Select, TextInput } from '@/components/FormControls';
+import { Link } from 'react-router-dom';
+import { Field, Select } from '@/components/FormControls';
 import { EmptyState, QueryState } from '@/components/StateViews';
 import { ConnectionBadge } from '@/components/Status';
 import { useCameras } from '@/hooks/useCoreData';
-import { resolveGo2rtcBaseUrl } from '@/services/go2rtc/webrtc';
-import { isValidServerUrl, normalizeUrl, useSettingsStore, type CameraLayout } from '@/stores/settingsStore';
+import { useSettingsStore, type CameraLayout } from '@/stores/settingsStore';
 import { SettingsSection } from './SettingsSection';
 
 export function CamerasSection() {
   const cameras = useCameras();
   const settings = useSettingsStore();
-  const go2rtcValid = isValidServerUrl(settings.go2rtcUrl);
-  const effective = resolveGo2rtcBaseUrl(settings) || '/go2rtc';
 
   return (
     <SettingsSection
       id="kamery"
       title="Konfiguracja kamer"
-      description="Ustawienia podglądu w tym panelu. Lista kamer i strumieni pochodzi z Sztudio Core."
+      description="Ustawienia podglądu w tym panelu. Kamery dodaje się i edytuje na ekranie Kamery."
       icon={Cctv}
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Domyślny układ monitoringu">
           {(field) => (
             <Select {...field} value={settings.defaultLayout} onChange={(event) => settings.update({ defaultLayout: Number(event.target.value) as CameraLayout })}>
@@ -39,28 +37,12 @@ export function CamerasSection() {
             </Select>
           )}
         </Field>
-        <Field
-          label="Adres go2rtc"
-          className="sm:col-span-2 lg:col-span-1"
-          hint={<>Puste pole = przez Sztudio Core. Używany adres: <span className="font-mono">{effective}</span></>}
-          error={go2rtcValid ? undefined : 'Podaj pełny adres zaczynający się od http:// lub https://.'}
-        >
-          {(field) => (
-            <TextInput
-              {...field}
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="http://adres-go2rtc:1984"
-              value={settings.go2rtcUrl}
-              onChange={(event) => settings.update({ go2rtcUrl: event.target.value })}
-              onBlur={() => settings.update({ go2rtcUrl: normalizeUrl(settings.go2rtcUrl) })}
-            />
-          )}
-        </Field>
       </div>
 
+      <p className="mt-3 text-xs leading-relaxed text-muted">
+        Obraz jest pobierany przez Sztudio Core (WebRTC). Panel nie łączy się bezpośrednio z kamerami ani z go2rtc.{' '}
+        <Link to="/kamery" className="font-medium text-primary-soft hover:text-ink">Zarządzaj kamerami</Link>
+      </p>
       <div className="label-caps mb-1 mt-5">Kamery zgłoszone przez Sztudio Core</div>
       <QueryState
         query={cameras}

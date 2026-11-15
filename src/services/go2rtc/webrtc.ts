@@ -1,23 +1,11 @@
 /**
- * Klient WebRTC dla go2rtc.
+ * Podgląd kamery przez WebRTC.
  *
- * Korzysta z punktu `POST {go2rtc}/api/webrtc?src={strumień}` – w treści wysyłana
- * jest oferta SDP, w odpowiedzi serwer zwraca odpowiedź SDP.
- * UWAGA: implementacja nie była jeszcze weryfikowana na rzeczywistym serwerze go2rtc.
+ * Panel nigdy nie łączy się z go2rtc ani nie zna adresu RTSP kamery. Ofertę SDP wysyła do
+ * Sztudio Core (autoryzowany punkt `POST /api/v1/cameras/{id}/webrtc`), a Core wymienia ją
+ * z go2rtc w sieci wewnętrznej. Obraz płynie potem szyfrowanym połączeniem WebRTC.
  */
-import { normalizeUrl } from '@/stores/settingsStore';
-
-export interface Go2rtcConfig {
-  /** Adres go2rtc; pusty = `<adres Core>/go2rtc`. */
-  go2rtcUrl: string;
-  serverUrl: string;
-}
-
-export function resolveGo2rtcBaseUrl(config: Go2rtcConfig): string {
-  const explicit = normalizeUrl(config.go2rtcUrl);
-  if (explicit) return explicit;
-  return `${normalizeUrl(config.serverUrl)}/go2rtc`;
-}
+import type { SztudioCoreApi } from '@/services/api/coreApi';
 
 export interface StreamSession {
   stream: MediaStream;
@@ -46,10 +34,10 @@ function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
   });
 }
 
-/** Zestawia sesję WebRTC (tylko odbiór) dla wskazanego strumienia go2rtc. */
-export async function openGo2rtcStream(
-  baseUrl: string,
-  streamName: string,
+/** Zestawia sesję WebRTC (tylko odbiór) dla wskazanej kamery. */
+export async function openCameraStream(
+  api: Pick<SztudioCoreApi, 'webrtcOffer'>,
+  cameraId: string,
   handlers: StreamHandlers = {},
   signal?: AbortSignal,
 ): Promise<StreamSession> {
@@ -57,7 +45,7 @@ export async function openGo2rtcStream(
     throw new Error('Przeglądarka nie obsługuje WebRTC.');
   }
 
-  // Sieć lokalna – bez zewnętrznych serwerów STUN/TURN.
+  // Sieć lokalna – bez zewnętrznych serwerów STUN/TURN; system działa bez internetu.
   const connection = new RTCPeerConnection({ iceServers: [] });
   const stream = new MediaStream();
   const close = () => connection.close();
@@ -73,15 +61,8 @@ export async function openGo2rtcStream(
     await connection.setLocalDescription(await connection.createOffer());
     await waitForIceGathering(connection);
 
-    const response = await fetch(`${baseUrl}/api/webrtc?src=${encodeURIComponent(streamName)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/sdp' },
-      body: connection.localDescription?.sdp ?? '',
-      signal,
-    });
-    if (!response.ok) throw new Error(`go2rtc zwrócił błąd ${response.status}.`);
-
-    await connection.setRemoteDescription({ type: 'answer', sdp: await response.text() });
+    const answer = await api.webrtcOffer(cameraId, connection.localDescription?.sdp ?? '', signal);
+    await connection.setRemoteDescription({ type: 'answer', sdp: answer });
     return { stream, close };
   } catch (error) {
     close();

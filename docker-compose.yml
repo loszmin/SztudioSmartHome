@@ -1,5 +1,5 @@
-# Sztudio Smart Home – PostgreSQL + Sztudio Core + panel WWW.
-# Przed pierwszym uruchomieniem skopiuj .env.example do .env i ustaw hasła.
+# Sztudio Smart Home – PostgreSQL, Sztudio Core, go2rtc i panel WWW (HTTPS).
+# Przed pierwszym uruchomieniem przygotuj plik .env:  ./scripts/init-env.sh
 services:
   db:
     image: postgres:16-alpine
@@ -15,10 +15,28 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [internal]
     # Baza nie jest wystawiana poza sieć wewnętrzną Compose.
+
+  # Jednorazowo: lokalny urząd certyfikacji i certyfikat HTTPS (albo pozostawienie certyfikatu użytkownika).
+  certs:
+    build: ./core
+    image: sztudio-core:local
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["python", "-m", "app.cli", "ensure-certs"]
+    environment:
+      SZTUDIO_TLS_DIR: /certs
+      SZTUDIO_TLS_CA_DIR: /ca
+      SZTUDIO_TLS_HOSTS: "${SZTUDIO_LAN_IP:?Ustaw SZTUDIO_LAN_IP w pliku .env},${SZTUDIO_TLS_HOSTS:-}"
+    volumes:
+      - ./certs/public:/certs
+      - ./certs/ca:/ca
 
   core:
     build: ./core
+    image: sztudio-core:local
     restart: unless-stopped
     depends_on:
       db:
@@ -30,7 +48,35 @@ services:
       SZTUDIO_ADMIN_USERNAME: ${SZTUDIO_ADMIN_USERNAME:-admin}
       SZTUDIO_ADMIN_PASSWORD: ${SZTUDIO_ADMIN_PASSWORD:?Ustaw SZTUDIO_ADMIN_PASSWORD w pliku .env}
       SZTUDIO_CORS_ORIGINS: ${SZTUDIO_CORS_ORIGINS:-}
-    # API jest dostępne przez usługę „web” (ten sam adres co panel).
+      SZTUDIO_GO2RTC_URL: http://go2rtc:1984
+      SZTUDIO_GO2RTC_USERNAME: core
+      SZTUDIO_GO2RTC_PASSWORD: ${SZTUDIO_GO2RTC_PASSWORD:?Ustaw SZTUDIO_GO2RTC_PASSWORD w pliku .env}
+      SZTUDIO_ALLOWED_DEVICE_NETWORKS: ${SZTUDIO_ALLOWED_DEVICE_NETWORKS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      # Usługi wewnętrzne (baza, go2rtc) nie mogą być celem połączeń z urządzeniami.
+      SZTUDIO_DENIED_DEVICE_NETWORKS: ${SZTUDIO_INTERNAL_SUBNET:-172.31.250.0/24}
+      SZTUDIO_MONITOR_INTERVAL_SECONDS: ${SZTUDIO_MONITOR_INTERVAL_SECONDS:-30}
+    networks: [internal]
+    # API jest dostępne wyłącznie przez usługę „web” (HTTPS).
+
+  go2rtc:
+    image: alexxit/go2rtc:1.9.15
+    restart: unless-stopped
+    environment:
+      SZTUDIO_GO2RTC_PASSWORD: ${SZTUDIO_GO2RTC_PASSWORD}
+      SZTUDIO_LAN_IP: ${SZTUDIO_LAN_IP}
+      SZTUDIO_WEBRTC_PORT: ${SZTUDIO_WEBRTC_PORT:-8555}
+    # Plik roboczy na tmpfs: adresy źródeł z hasłami istnieją tylko w pamięci i znikają przy restarcie
+    # (Core rejestruje je wtedy ponownie).
+    command: ["sh", "-c", "cp /etc/go2rtc/base.yaml /run/go2rtc/go2rtc.yaml && exec go2rtc -c /run/go2rtc/go2rtc.yaml"]
+    tmpfs:
+      - /run/go2rtc
+    volumes:
+      - ./docker/go2rtc.yaml:/etc/go2rtc/base.yaml:ro
+    ports:
+      # Wyłącznie media WebRTC (szyfrowane DTLS-SRTP). Port API (1984) nie jest publikowany.
+      - "${SZTUDIO_WEBRTC_PORT:-8555}:8555/tcp"
+      - "${SZTUDIO_WEBRTC_PORT:-8555}:8555/udp"
+    networks: [internal]
 
   web:
     build:
@@ -38,10 +84,24 @@ services:
       dockerfile: docker/web.Dockerfile
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       core:
         condition: service_healthy
+    environment:
+      SZTUDIO_HTTPS_PORT: ${SZTUDIO_HTTPS_PORT:-443}
+    volumes:
+      - ./certs/public:/certs:ro
     ports:
-      - "${SZTUDIO_HTTP_PORT:-8080}:80"
+      - "${SZTUDIO_HTTPS_PORT:-443}:443"
+      - "${SZTUDIO_HTTP_PORT:-80}:80"
+    networks: [internal]
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: ${SZTUDIO_INTERNAL_SUBNET:-172.31.250.0/24}
 
 volumes:
   db-data:

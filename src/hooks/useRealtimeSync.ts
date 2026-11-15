@@ -9,8 +9,8 @@ import { coreQueryKey, useDataSource } from './useCoreQuery';
 /** Zasoby do odświeżenia po komunikacie na danym kanale. */
 const CHANNEL_RESOURCES: Record<RealtimeChannelName, string[]> = {
   events: ['events'],
-  system: ['system', 'network', 'devices'],
-  cameras: ['cameras'],
+  system: ['system', 'network', 'devices', 'recorders', 'diagnostics'],
+  cameras: ['cameras', 'diagnostics'],
   alarms: ['alarms', 'sensors', 'system'],
 };
 

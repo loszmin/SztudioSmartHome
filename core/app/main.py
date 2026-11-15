@@ -15,7 +15,7 @@ from app.db import make_engine, make_session_factory
 from app.integrations.go2rtc import Go2rtcClient
 from app.integrations.netguard import AddressPolicy
 from app.integrations.onvif.discovery import WS_DISCOVERY_PORT
-from app.logging_filters import install_token_redaction
+from app.logging_filters import install_log_redaction
 from app.monitor import DeviceMonitor
 from app.realtime import RealtimeHub
 from app.security import SecretBox, TokenSigner, hash_password
@@ -113,5 +113,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 def app_factory() -> FastAPI:
     """Punkt wejścia dla uvicorn: `uvicorn app.main:app_factory --factory`."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    install_token_redaction()
+    install_log_redaction()
     return create_app()

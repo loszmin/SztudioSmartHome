@@ -17,6 +17,9 @@ export function createDemoApi(options: { delayMs?: number; db?: DemoDatabase } =
   const respond = <T>(value: T): Promise<T> =>
     new Promise((resolve) => setTimeout(() => resolve(clone(value)), delayMs));
 
+  const unavailable = (): Promise<never> =>
+    Promise.reject(new ApiError('http', 'Funkcja wymaga połączenia z Sztudio Core – niedostępna w trybie demonstracyjnym.', 501, 'demo_mode'));
+
   const addEvent = (event: Omit<SystemEvent, 'id' | 'occurredAt'>) => {
     db.events.unshift({ ...event, id: `evt-${eventSeq++}`, occurredAt: new Date().toISOString() });
   };
@@ -63,5 +66,43 @@ export function createDemoApi(options: { delayMs?: number; db?: DemoDatabase } =
       return respond(items);
     },
     getNetworkDevices: () => respond(db.network),
+
+    // Konfiguracja urządzeń i obraz wymagają prawdziwego Sztudio Core – tryb demo niczego nie udaje.
+    getCameraConfig: unavailable,
+    createCamera: unavailable,
+    updateCamera: unavailable,
+    deleteCamera: unavailable,
+    testCamera: unavailable,
+    checkCamera: unavailable,
+    webrtcOffer: unavailable,
+    discoverOnvif: unavailable,
+    inspectOnvif: unavailable,
+    getRecorders: () =>
+      respond(
+        db.devices
+          .filter((device) => device.kind === 'recorder')
+          .map((device) => ({
+            id: device.id,
+            name: device.name,
+            vendor: device.vendor,
+            series: 'other' as const,
+            model: device.model,
+            ipAddress: device.ipAddress,
+            channels: device.channels,
+            hasPassword: false,
+            status: device.status,
+            lastSeenAt: device.lastSeenAt,
+          })),
+      ),
+    createRecorder: unavailable,
+    updateRecorder: unavailable,
+    deleteRecorder: unavailable,
+    testRecorder: unavailable,
+    checkRecorder: unavailable,
+    getRecorderChannels: unavailable,
+    importRecorderChannels: unavailable,
+    getIntegrationInfo: unavailable,
+    getDiagnostics: unavailable,
+    runDiagnostics: unavailable,
   };
 }

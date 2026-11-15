@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { resolveGo2rtcBaseUrl } from '@/services/go2rtc/webrtc';
 import { buildWebSocketUrl } from './realtimeClient';
 
 describe('adresy usług czasu rzeczywistego', () => {
@@ -10,11 +9,5 @@ describe('adresy usług czasu rzeczywistego', () => {
 
   it('używa adresu panelu, gdy adres serwera jest pusty', () => {
     expect(buildWebSocketUrl('', '/ws/v1/system', 'https://panel.local')).toBe('wss://panel.local/ws/v1/system');
-  });
-
-  it('wyznacza adres go2rtc', () => {
-    expect(resolveGo2rtcBaseUrl({ go2rtcUrl: '', serverUrl: 'http://10.0.0.5:8000/' })).toBe('http://10.0.0.5:8000/go2rtc');
-    expect(resolveGo2rtcBaseUrl({ go2rtcUrl: 'http://10.0.0.5:1984/', serverUrl: '' })).toBe('http://10.0.0.5:1984');
-    expect(resolveGo2rtcBaseUrl({ go2rtcUrl: '', serverUrl: '' })).toBe('/go2rtc');
   });
 });

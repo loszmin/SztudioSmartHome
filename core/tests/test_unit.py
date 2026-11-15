@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app import schemas
 from app.auth import LoginThrottle
 from app.config import Settings
-from app.logging_filters import TokenRedactingFilter, install_token_redaction
+from app.logging_filters import SecretRedactingFilter, install_log_redaction, redact
 from app.security import (
     SecretBox,
     TokenSigner,
@@ -123,10 +123,10 @@ def test_settings_require_strong_secret_key():
 
 
 def test_tokens_are_redacted_from_server_logs(caplog):
-    install_token_redaction()
-    install_token_redaction()  # ponowne wywołanie nie dubluje filtra
+    install_log_redaction()
+    install_log_redaction()  # ponowne wywołanie nie dubluje filtra
     logger = logging.getLogger("uvicorn.error")
-    assert sum(isinstance(item, TokenRedactingFilter) for item in logger.filters) == 1
+    assert sum(isinstance(item, SecretRedactingFilter) for item in logger.filters) == 1
 
     with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         logger.info(
@@ -134,3 +134,17 @@ def test_tokens_are_redacted_from_server_logs(caplog):
         )
     assert "tajny" not in caplog.text
     assert "/ws/v1/events?token=***&x=1" in caplog.text
+
+
+def test_rtsp_credentials_are_redacted_in_plain_and_encoded_urls():
+    assert (
+        redact("dial rtsp://admin:tajne@192.168.1.64:554/s failed")
+        == "dial rtsp://***@192.168.1.64:554/s failed"
+    )
+    encoded = (
+        "PUT http://go2rtc:1984/api/streams?name=cam&src=rtsp%3A%2F%2Fadmin%3Atajne%40192.168.1.64%3A554%2Fs"
+    )
+    assert "tajne" not in redact(encoded) and "192.168.1.64" in redact(encoded)
+    assert (
+        redact("rtsp://192.168.1.64:554/s") == "rtsp://192.168.1.64:554/s"
+    )  # bez danych logowania – bez zmian

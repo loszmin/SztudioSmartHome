@@ -1,49 +1,73 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDataSource } from '@/hooks/useCoreQuery';
 import { describeError } from '@/services/api/httpClient';
-import { openGo2rtcStream, resolveGo2rtcBaseUrl, type StreamSession } from '@/services/go2rtc/webrtc';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { getCoreApi } from '@/services/coreApiProvider';
+import { openCameraStream, type StreamSession } from '@/services/go2rtc/webrtc';
 import type { Camera } from '@/types/api';
 
 /**
  * `demo` – brak backendu, obraz nie jest symulowany;
  * `offline` – kamera niedostępna wg Sztudio Core;
- * `connecting` / `live` / `error` – stan sesji WebRTC z go2rtc.
+ * `disabled` / `unconfigured` – kamera wyłączona lub bez źródła obrazu;
+ * `connecting` / `live` / `error` – stan sesji WebRTC.
  */
-export type StreamState = 'demo' | 'offline' | 'connecting' | 'live' | 'error';
+export type StreamState = 'demo' | 'offline' | 'disabled' | 'unconfigured' | 'connecting' | 'live' | 'error';
+
+/** Odstępy automatycznego wznawiania połączenia (kolejne próby coraz rzadziej). */
+export const RECONNECT_DELAYS_MS = [2000, 5000, 10_000, 20_000, 30_000];
+
+export function reconnectDelay(failures: number): number {
+  return RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length) - 1] ?? RECONNECT_DELAYS_MS[0]!;
+}
 
 export function useCameraStream(camera: Camera) {
-  const mode = useSettingsStore((state) => state.mode);
-  const serverUrl = useSettingsStore((state) => state.serverUrl);
-  const go2rtcUrl = useSettingsStore((state) => state.go2rtcUrl);
+  const source = useDataSource();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [phase, setPhase] = useState<'connecting' | 'live' | 'error'>('connecting');
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const failures = useRef(0);
 
-  const active = mode === 'live' && camera.status === 'online';
-  const baseUrl = resolveGo2rtcBaseUrl({ go2rtcUrl, serverUrl });
+  const { mode, serverUrl, apiToken } = source;
+  const configured = camera.streamState === undefined || camera.streamState === 'registered' || camera.streamState === 'error';
+  const active = mode === 'live' && camera.status === 'online' && camera.enabled !== false && configured;
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      failures.current = 0;
+      return;
+    }
     const abort = new AbortController();
     const video = videoRef.current;
     let session: StreamSession | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+
+    const fail = (message: string) => {
+      if (cancelled) return;
+      session?.close();
+      session = null;
+      failures.current += 1;
+      setPhase('error');
+      setError(message);
+      // Automatyczne wznawianie: kamera lub go2rtc mogły chwilowo zniknąć.
+      retryTimer = setTimeout(() => setAttempt((value) => value + 1), reconnectDelay(failures.current));
+    };
 
     setPhase('connecting');
     setError(null);
 
-    openGo2rtcStream(
-      baseUrl,
-      camera.streamName,
+    openCameraStream(
+      getCoreApi({ mode, serverUrl, apiToken }),
+      camera.id,
       {
         onConnectionStateChange: (state) => {
           if (cancelled) return;
-          if (state === 'connected') setPhase('live');
-          if (state === 'failed' || state === 'disconnected') {
-            setPhase('error');
-            setError('Połączenie ze strumieniem zostało przerwane.');
+          if (state === 'connected') {
+            failures.current = 0;
+            setPhase('live');
           }
+          if (state === 'failed' || state === 'disconnected') fail('Połączenie ze strumieniem zostało przerwane.');
         },
       },
       abort.signal,
@@ -56,23 +80,29 @@ export function useCameraStream(camera: Camera) {
         session = opened;
         if (video) video.srcObject = opened.stream;
       })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setPhase('error');
-        setError(describeError(cause));
-      });
+      .catch((cause: unknown) => fail(describeError(cause)));
 
     return () => {
       cancelled = true;
       abort.abort();
+      if (retryTimer) clearTimeout(retryTimer);
       session?.close();
       if (video) video.srcObject = null;
     };
-  }, [active, baseUrl, camera.streamName, attempt]);
+  }, [active, mode, serverUrl, apiToken, camera.id, attempt]);
 
-  const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
+  const reconnect = useCallback(() => {
+    failures.current = 0;
+    setAttempt((value) => value + 1);
+  }, []);
 
-  const state: StreamState = camera.status === 'offline' ? 'offline' : mode === 'demo' ? 'demo' : phase;
+  let state: StreamState;
+  if (camera.enabled === false) state = 'disabled';
+  else if (mode === 'live' && camera.streamState === 'not_configured') state = 'unconfigured';
+  else if (camera.status === 'offline') state = 'offline';
+  else if (mode === 'demo') state = 'demo';
+  else state = phase;
+
   return { state, error, videoRef, reconnect, active };
 }
 

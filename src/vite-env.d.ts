@@ -5,6 +5,5 @@ declare const __BUILD_DATE__: string;
 
 interface ImportMetaEnv {
   readonly VITE_CORE_URL?: string;
-  readonly VITE_GO2RTC_URL?: string;
   readonly VITE_DEFAULT_MODE?: string;
 }

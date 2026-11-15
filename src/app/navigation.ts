@@ -1,4 +1,4 @@
-import { Activity, Bell, Cctv, History, LayoutDashboard, Network, Settings, type LucideIcon } from 'lucide-react';
+import { Activity, Bell, Cctv, HardDrive, History, LayoutDashboard, Network, Settings, Stethoscope, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   path: string;
@@ -15,8 +15,10 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/kamery', label: 'Kamery', title: 'Monitoring kamer', icon: Cctv, primary: true },
   { path: '/alarmy', label: 'Alarmy', title: 'Alarmy', icon: Bell, primary: true },
   { path: '/czujniki', label: 'Czujniki', title: 'Czujniki', icon: Activity, primary: true },
+  { path: '/rejestratory', label: 'Rejestratory', title: 'Rejestratory', icon: HardDrive, primary: false },
   { path: '/siec', label: 'Sieć', title: 'Sieć lokalna', icon: Network, primary: false },
   { path: '/historia', label: 'Historia', title: 'Historia zdarzeń', icon: History, primary: false },
+  { path: '/diagnostyka', label: 'Diagnostyka', title: 'Diagnostyka Sztudio Core', icon: Stethoscope, primary: false },
   { path: '/ustawienia', label: 'Ustawienia', title: 'Ustawienia', icon: Settings, primary: false },
 ];
 

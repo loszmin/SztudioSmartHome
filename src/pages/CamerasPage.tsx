@@ -1,44 +1,99 @@
-import { useRef, useState } from 'react';
-import { Cctv } from 'lucide-react';
-import { ConnectionBadge } from '@/components/Status';
+import { useRef, useState, type ReactNode } from 'react';
+import { Cctv, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Button } from '@/components/Button';
+import { ConfirmDialog } from '@/components/Dialog';
+import { Badge, ConnectionBadge } from '@/components/Status';
 import { signalLabel } from '@/components/SignalBars';
 import { EmptyState, QueryState } from '@/components/StateViews';
-import { useCameras } from '@/hooks/useCoreData';
+import type { Tone } from '@/components/tone';
+import { useCameras, useCoreAction } from '@/hooks/useCoreData';
+import { useDataSource } from '@/hooks/useCoreQuery';
 import { useFullscreen } from '@/hooks/useFullscreen';
+import { CameraAdminBar } from '@/modules/cameras/CameraAdminBar';
+import type { CameraFormState } from '@/modules/cameras/cameraForm';
+import { CameraFormDialog } from '@/modules/cameras/CameraFormDialog';
 import { CameraGrid } from '@/modules/cameras/CameraGrid';
 import { CameraToolbar } from '@/modules/cameras/CameraToolbar';
 import { pageCount, pageOf, pageSlots } from '@/modules/cameras/layouts';
+import { OnvifDiscoveryDialog } from '@/modules/cameras/OnvifDiscoveryDialog';
 import { useSettingsStore, type CameraLayout } from '@/stores/settingsStore';
-import type { Camera } from '@/types/api';
+import type { Camera, StreamRegistration } from '@/types/api';
 import { cn } from '@/utils/cn';
 import { formatRelative } from '@/utils/format';
 
-function CameraDetails({ camera }: { camera: Camera }) {
-  const items: Array<[string, React.ReactNode]> = [
-    ['Lokalizacja', camera.location],
+const SOURCE_LABELS: Record<Camera['source'], string> = { bcs: 'Rejestrator BCS', onvif: 'ONVIF', rtsp: 'RTSP' };
+const STREAM: Record<StreamRegistration, { tone: Tone; label: string }> = {
+  registered: { tone: 'success', label: 'Strumień zarejestrowany' },
+  not_configured: { tone: 'neutral', label: 'Brak źródła obrazu' },
+  disabled: { tone: 'neutral', label: 'Kamera wyłączona' },
+  error: { tone: 'danger', label: 'Błąd rejestracji strumienia' },
+};
+
+type DialogState =
+  | { kind: 'add'; initial?: Partial<CameraFormState> }
+  | { kind: 'edit'; cameraId: string }
+  | { kind: 'delete'; camera: Camera }
+  | { kind: 'discover' }
+  | null;
+
+interface CameraDetailsProps {
+  camera: Camera;
+  admin: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function CameraDetails({ camera, admin, onEdit, onDelete }: CameraDetailsProps) {
+  const check = useCoreAction((api, id: string) => api.checkCamera(id), {
+    invalidate: ['cameras', 'diagnostics'],
+    success: (result) => (result.ok ? `Kamera odpowiada (${result.responseTimeMs ?? 0} ms).` : null),
+    failure: 'Nie udało się sprawdzić kamery.',
+  });
+  const items: Array<[string, ReactNode]> = [
+    ['Lokalizacja', camera.location || '—'],
     ['Jakość połączenia', camera.signalQuality === null ? '—' : `${signalLabel(camera.signalQuality)} (${camera.signalQuality}%)`],
-    ['Źródło', `${camera.source.toUpperCase()}${camera.channel !== undefined ? ` · kanał ${camera.channel}` : ''}`],
-    ['Strumień go2rtc', <span className="font-mono text-xs">{camera.streamName}</span>],
+    ['Źródło obrazu', `${SOURCE_LABELS[camera.source]}${camera.channel !== undefined ? ` · kanał ${camera.channel}` : ''}`],
+    ['Profil', camera.streamProfile ?? '—'],
     ['Obraz', camera.resolution ? `${camera.resolution}${camera.fps ? ` · ${camera.fps} kl./s` : ''}` : '—'],
     ['Ostatnia aktywność', formatRelative(camera.lastSeenAt)],
   ];
+  const stream = camera.streamState ? STREAM[camera.streamState] : null;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-line bg-navy px-4 py-2.5">
-      <div className="flex items-center gap-2.5">
-        <span className="text-sm font-semibold">{camera.name}</span>
-        <ConnectionBadge status={camera.status} />
-      </div>
-      {items.map(([label, value]) => (
-        <div key={label} className="text-xs">
-          <span className="text-muted">{label}: </span>
-          <span className="text-silver">{value}</span>
+    <section aria-label="Wybrana kamera" className="rounded-lg border border-line bg-navy px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-semibold">{camera.name}</span>
+          <ConnectionBadge status={camera.status} />
+          {stream && <Badge tone={stream.tone}>{stream.label}</Badge>}
         </div>
-      ))}
-    </div>
+        {items.map(([label, value]) => (
+          <div key={label} className="text-xs">
+            <span className="text-muted">{label}: </span>
+            <span className="text-silver">{value}</span>
+          </div>
+        ))}
+        {admin && (
+          <div className="ml-auto flex items-center gap-1">
+            <Button size="sm" variant="ghost" icon={RefreshCw} disabled={check.isPending} onClick={() => check.mutate(camera.id)}>
+              {check.isPending ? 'Sprawdzanie…' : 'Sprawdź'}
+            </Button>
+            <Button size="sm" variant="ghost" icon={Pencil} onClick={onEdit}>Edytuj</Button>
+            <Button size="sm" variant="ghost" icon={Trash2} onClick={onDelete}>Usuń</Button>
+          </div>
+        )}
+      </div>
+      {camera.errorMessage && camera.status === 'offline' && (
+        <p role="status" className="mt-2 border-t border-line pt-2 text-xs text-danger">
+          {camera.errorMessage}
+          {camera.errorCode && <span className="ml-2 font-mono text-[11px] text-muted">kod: {camera.errorCode}</span>}
+        </p>
+      )}
+    </section>
   );
 }
 
-function Monitor({ cameras }: { cameras: Camera[] }) {
+function Monitor({ cameras, admin, onDialog }: { cameras: Camera[]; admin: boolean; onDialog: (state: DialogState) => void }) {
   const defaultLayout = useSettingsStore((state) => state.defaultLayout);
   const [layout, setLayout] = useState<CameraLayout>(defaultLayout);
   const [gridLayout, setGridLayout] = useState<CameraLayout>(defaultLayout === 1 ? 4 : defaultLayout);
@@ -80,7 +135,7 @@ function Monitor({ cameras }: { cameras: Camera[] }) {
   };
 
   return (
-    <div className="flex flex-col gap-3 p-3 sm:p-4 lg:p-6">
+    <>
       <CameraToolbar
         cameras={cameras}
         layout={layout}
@@ -95,10 +150,7 @@ function Monitor({ cameras }: { cameras: Camera[] }) {
         onToggleFullscreen={() => void fullscreen.toggle()}
       />
 
-      <div
-        ref={stage}
-        className={cn(fullscreen.isFullscreen && 'flex items-center justify-center bg-black p-2')}
-      >
+      <div ref={stage} className={cn(fullscreen.isFullscreen && 'flex items-center justify-center bg-black p-2')}>
         <CameraGrid
           layout={layout}
           slots={slots}
@@ -109,33 +161,89 @@ function Monitor({ cameras }: { cameras: Camera[] }) {
             'mx-auto w-full',
             fullscreen.isFullscreen
               ? 'max-w-[calc((100dvh-1rem)*16/9)]'
-              : 'lg:max-w-[calc((100dvh-16.5rem)*16/9)]',
+              : admin
+                ? 'lg:max-w-[calc((100dvh-19.5rem)*16/9)]'
+                : 'lg:max-w-[calc((100dvh-16.5rem)*16/9)]',
           )}
         />
       </div>
 
-      {selected && <CameraDetails camera={selected} />}
-    </div>
+      {selected && (
+        <CameraDetails
+          camera={selected}
+          admin={admin}
+          onEdit={() => onDialog({ kind: 'edit', cameraId: selected.id })}
+          onDelete={() => onDialog({ kind: 'delete', camera: selected })}
+        />
+      )}
+    </>
   );
 }
 
 export function CamerasPage() {
   const cameras = useCameras();
+  const { mode } = useDataSource();
+  const admin = mode === 'live';
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const remove = useCoreAction((api, id: string) => api.deleteCamera(id), {
+    invalidate: ['cameras', 'devices', 'diagnostics', 'alarms'],
+    success: 'Kamera została usunięta.',
+    failure: 'Nie udało się usunąć kamery.',
+  });
+
   return (
-    <QueryState
-      query={cameras}
-      isEmpty={(data) => data.length === 0}
-      empty={
-        <EmptyState
-          icon={Cctv}
-          title="Brak skonfigurowanych kamer"
-          description="Sztudio Core nie zwrócił żadnej kamery. Dodaj kamery lub rejestrator BCS w konfiguracji serwera."
-          className="py-24"
+    <div className="flex flex-col gap-3 p-3 sm:p-4 lg:p-6">
+      {admin && <CameraAdminBar onAdd={() => setDialog({ kind: 'add' })} onDiscover={() => setDialog({ kind: 'discover' })} />}
+
+      <QueryState
+        query={cameras}
+        isEmpty={(data) => data.length === 0}
+        empty={
+          <EmptyState
+            icon={Cctv}
+            title="Brak skonfigurowanych kamer"
+            description={
+              admin
+                ? 'Dodaj kamerę przez adres IP albo wyszukaj urządzenia ONVIF w sieci lokalnej. Kamery podłączone do rejestratora dodasz na ekranie Rejestratory.'
+                : 'Tryb demonstracyjny nie zawiera kamer.'
+            }
+            className="py-20"
+          />
+        }
+        className="py-20"
+      >
+        {(data) => <Monitor cameras={data} admin={admin} onDialog={setDialog} />}
+      </QueryState>
+
+      {dialog?.kind === 'add' && <CameraFormDialog initial={dialog.initial} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'edit' && <CameraFormDialog cameraId={dialog.cameraId} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'discover' && (
+        <OnvifDiscoveryDialog
+          onClose={() => setDialog(null)}
+          onSelect={(device) =>
+            setDialog({
+              kind: 'add',
+              initial: {
+                source: 'onvif',
+                host: device.ip,
+                onvifPort: String(device.onvifPort),
+                name: device.name ?? device.hardware ?? '',
+                model: device.hardware ?? '',
+              },
+            })
+          }
         />
-      }
-      className="py-24"
-    >
-      {(data) => <Monitor cameras={data} />}
-    </QueryState>
+      )}
+      {dialog?.kind === 'delete' && (
+        <ConfirmDialog
+          title="Usunąć kamerę?"
+          message={`Kamera „${dialog.camera.name}” zostanie usunięta razem z konfiguracją źródła i zapisanym hasłem. Historia zdarzeń pozostanie.`}
+          confirmLabel="Usuń kamerę"
+          pending={remove.isPending}
+          onClose={() => setDialog(null)}
+          onConfirm={() => remove.mutate(dialog.camera.id, { onSettled: () => setDialog(null) })}
+        />
+      )}
+    </div>
   );
 }

@@ -3,12 +3,15 @@ export type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse';
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly status?: number;
+  /** Kod diagnostyczny zwrócony przez Core (np. `auth_failed`, `address_not_allowed`). */
+  readonly code?: string;
 
-  constructor(kind: ApiErrorKind, message: string, status?: number) {
+  constructor(kind: ApiErrorKind, message: string, status?: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -20,10 +23,37 @@ export interface HttpClientConfig {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   query?: Record<string, string | number | undefined>;
   body?: unknown;
+  /** Treść wysyłana bez kodowania JSON (np. oferta SDP) wraz z typem zawartości. */
+  rawBody?: { content: string; contentType: string };
+  /** Oczekiwany format odpowiedzi; domyślnie JSON. */
+  expect?: 'json' | 'text';
+  /** Limit czasu tego żądania (np. dłuższy dla operacji na urządzeniach). */
+  timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+/** Wyciąga opis i kod błędu z odpowiedzi Core (`{detail: "…"}` lub `{detail: {code, message}}`). */
+async function readErrorDetail(response: Response): Promise<{ message?: string; code?: string }> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+    const detail = payload?.detail;
+    if (typeof detail === 'string') return { message: detail };
+    if (Array.isArray(detail)) {
+      const first = detail[0] as { msg?: string; loc?: unknown[] } | undefined;
+      const field = Array.isArray(first?.loc) ? String(first.loc[first.loc.length - 1]) : '';
+      return { message: first?.msg ? `Nieprawidłowe dane${field ? ` (${field})` : ''}: ${first.msg}` : undefined };
+    }
+    if (detail && typeof detail === 'object') {
+      const { message, code } = detail as { message?: string; code?: string };
+      return { message, code };
+    }
+  } catch {
+    // Odpowiedź bez treści JSON – zostaje komunikat ogólny.
+  }
+  return {};
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -47,13 +77,14 @@ export function createHttpClient(config: HttpClientConfig) {
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, options.timeoutMs ?? timeoutMs);
     const onAbort = () => controller.abort();
     options.signal?.addEventListener('abort', onAbort);
 
     try {
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+      const headers: Record<string, string> = { Accept: options.expect === 'text' ? '*/*' : 'application/json' };
+      if (options.rawBody) headers['Content-Type'] = options.rawBody.contentType;
+      else if (options.body !== undefined) headers['Content-Type'] = 'application/json';
       if (config.token) headers.Authorization = `Bearer ${config.token}`;
 
       let response: Response;
@@ -61,7 +92,7 @@ export function createHttpClient(config: HttpClientConfig) {
         response = await fetch(buildUrl(config.baseUrl, path, options.query), {
           method: options.method ?? 'GET',
           headers,
-          body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+          body: options.rawBody?.content ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
           signal: controller.signal,
           cache: 'no-store',
         });
@@ -72,13 +103,17 @@ export function createHttpClient(config: HttpClientConfig) {
       }
 
       if (!response.ok) {
+        const detail = await readErrorDetail(response);
         const message =
-          response.status === 401 || response.status === 403
+          response.status === 401
             ? 'Serwer wymaga uwierzytelnienia – zaloguj się w Ustawieniach lub sprawdź token API.'
-            : `Serwer zwrócił błąd ${response.status}.`;
-        throw new ApiError('http', message, response.status);
+            : response.status === 403
+              ? (detail.message ?? 'Brak uprawnień do tej operacji.')
+              : (detail.message ?? `Serwer zwrócił błąd ${response.status}.`);
+        throw new ApiError('http', message, response.status, detail.code);
       }
       if (response.status === 204) return undefined as T;
+      if (options.expect === 'text') return (await response.text()) as T;
 
       try {
         return (await response.json()) as T;

@@ -398,3 +398,17 @@ def test_onvif_devices_differ_in_supported_features(fake_loop):
     finally:
         fake_loop.run(no_media.stop())
         fake_loop.run(partial.stop())
+
+
+def test_go2rtc_requests_do_not_log_camera_credentials(caplog):
+    """httpx zapisuje adresy żądań na poziomie INFO, a adres źródła z hasłem jest parametrem zapytania."""
+    import logging
+
+    async def scenario():
+        client = go2rtc_client(lambda request: httpx.Response(200))
+        await client.put_stream("cam_a", "rtsp://admin:bardzo-tajne-haslo@192.168.1.64:554/s")
+
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(scenario())
+    assert "bardzo-tajne-haslo" not in caplog.text
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING

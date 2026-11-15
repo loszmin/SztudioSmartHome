@@ -21,8 +21,6 @@ export interface SettingsState {
   apiToken: string;
   /** Login użytkownika, którego token jest zapisany (pusty przy ręcznie wklejonym tokenie). */
   authUsername: string;
-  /** Adres go2rtc; pusty = `<adres Core>/go2rtc`. */
-  go2rtcUrl: string;
   refreshIntervalSec: number;
   defaultLayout: CameraLayout;
   dashboardCameraCount: 2 | 4;
@@ -41,7 +39,6 @@ export const defaultSettings = {
   serverUrl: env.VITE_CORE_URL ?? '',
   apiToken: '',
   authUsername: '',
-  go2rtcUrl: env.VITE_GO2RTC_URL ?? '',
   refreshIntervalSec: 10,
   defaultLayout: 4 as CameraLayout,
   dashboardCameraCount: 4 as 2 | 4,
@@ -59,7 +56,7 @@ export const useSettingsStore = create<SettingsState>()(
       updateNotifications: (patch) =>
         set((state) => ({ notifications: { ...state.notifications, ...patch } })),
     }),
-    { name: 'sztudio.settings', version: 1 },
+    { name: 'sztudio.settings', version: 2 },
   ),
 );
 

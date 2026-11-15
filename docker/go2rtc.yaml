@@ -1,0 +1,20 @@
+# Konfiguracja bazowa go2rtc. Strumienie kamer NIE są tu wpisywane – rejestruje je Sztudio Core
+# przez API, a go2rtc trzyma je wyłącznie w pamięci (plik roboczy leży na tmpfs).
+api:
+  # API dostępne tylko w wewnętrznej sieci Compose; port nie jest publikowany na hoście.
+  listen: ":1984"
+  username: "core"
+  password: "${SZTUDIO_GO2RTC_PASSWORD}"
+
+rtsp:
+  # Wbudowany serwer RTSP wyłączony – obraz wychodzi wyłącznie przez WebRTC.
+  listen: ""
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    # Adres hosta w sieci LAN, pod którym przeglądarki osiągają opublikowany port WebRTC.
+    - "${SZTUDIO_LAN_IP}:${SZTUDIO_WEBRTC_PORT}"
+
+log:
+  level: warn

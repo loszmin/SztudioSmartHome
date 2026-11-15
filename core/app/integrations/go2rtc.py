@@ -7,6 +7,10 @@ from typing import Any
 import httpx
 
 from app.integrations.errors import IntegrationError
+from app.logging_filters import silence_http_client_logs
+
+# Adres źródła (z hasłem kamery) trafia do go2rtc w parametrze zapytania – httpx zapisałby go w dzienniku.
+silence_http_client_logs()
 
 _STREAM_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CREDENTIALS_IN_URL = re.compile(r"//[^/@\s]*@")
