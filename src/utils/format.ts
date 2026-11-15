@@ -28,7 +28,8 @@ export function formatLongDate(date: Date | string): string {
 const relative = new Intl.RelativeTimeFormat(LOCALE, { numeric: 'auto', style: 'short' });
 
 /** Czas względny, np. „5 min temu”. */
-export function formatRelative(date: Date | string, now: Date = new Date()): string {
+export function formatRelative(date: Date | string | null | undefined, now: Date = new Date()): string {
+  if (date === null || date === undefined) return 'nigdy';
   const diffSec = Math.round((new Date(date).getTime() - now.getTime()) / 1000);
   const abs = Math.abs(diffSec);
   if (abs < 45) return 'przed chwilą';

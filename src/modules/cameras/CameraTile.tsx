@@ -40,7 +40,7 @@ function Placeholder({ state, camera, error, onRetry }: {
 }) {
   const content = {
     demo: { icon: Cctv, color: 'text-silver/40', title: 'Podgląd demonstracyjny', detail: 'Brak strumienia wideo – połącz z Sztudio Core.' },
-    offline: { icon: VideoOff, color: 'text-danger/80', title: 'Kamera offline', detail: `Ostatnio widziana ${formatRelative(camera.lastSeenAt)}.` },
+    offline: { icon: VideoOff, color: 'text-danger/80', title: 'Kamera offline', detail: camera.lastSeenAt ? `Ostatnio widziana ${formatRelative(camera.lastSeenAt)}.` : 'Kamera nie nawiązała jeszcze połączenia.' },
     connecting: { icon: LoaderCircle, color: 'text-primary-soft', title: 'Łączenie ze strumieniem…', detail: '' },
     error: { icon: TriangleAlert, color: 'text-warning', title: 'Brak obrazu', detail: error ?? 'Nie udało się połączyć ze strumieniem.' },
   }[state];

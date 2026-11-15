@@ -74,7 +74,7 @@ export function createHttpClient(config: HttpClientConfig) {
       if (!response.ok) {
         const message =
           response.status === 401 || response.status === 403
-            ? 'Serwer odrzucił żądanie – sprawdź token API.'
+            ? 'Serwer wymaga uwierzytelnienia – zaloguj się w Ustawieniach lub sprawdź token API.'
             : `Serwer zwrócił błąd ${response.status}.`;
         throw new ApiError('http', message, response.status);
       }

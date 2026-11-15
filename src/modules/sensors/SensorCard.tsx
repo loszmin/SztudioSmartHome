@@ -50,7 +50,7 @@ export function SensorCard({ sensor }: { sensor: Sensor }) {
           <span className="inline-flex items-center gap-1" title="Ostatnia aktualizacja">
             <Clock className="h-3 w-3" />
             <span className="sr-only">Ostatnia aktualizacja: </span>
-            <time dateTime={sensor.lastUpdatedAt}>{formatRelative(sensor.lastUpdatedAt)}</time>
+            <time dateTime={sensor.lastUpdatedAt ?? undefined}>{formatRelative(sensor.lastUpdatedAt)}</time>
           </span>
         </div>
       </div>

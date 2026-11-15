@@ -60,7 +60,8 @@ export interface Device {
   /** Liczba kanałów wideo (rejestrator). */
   channels?: number;
   status: ConnectionStatus;
-  lastSeenAt: IsoDateString;
+  /** null = urządzenie nie było jeszcze widziane. */
+  lastSeenAt: IsoDateString | null;
 }
 
 /* ---------- Kamery ---------- */
@@ -82,7 +83,8 @@ export interface Camera {
   resolution?: string;
   fps?: number;
   recording: boolean;
-  lastSeenAt: IsoDateString;
+  /** null = urządzenie nie było jeszcze widziane. */
+  lastSeenAt: IsoDateString | null;
 }
 
 /* ---------- Alarmy ---------- */
@@ -125,7 +127,8 @@ export interface Sensor {
   unit?: string;
   connection: ConnectionStatus;
   batteryPercent?: number | null;
-  lastUpdatedAt: IsoDateString;
+  /** null = czujnik nie przesłał jeszcze odczytu. */
+  lastUpdatedAt: IsoDateString | null;
 }
 
 /* ---------- Sieć ---------- */
@@ -141,7 +144,8 @@ export interface NetworkDevice {
   vendor: string;
   status: ConnectionStatus;
   latencyMs?: number | null;
-  lastSeenAt: IsoDateString;
+  /** null = urządzenie nie było jeszcze widziane. */
+  lastSeenAt: IsoDateString | null;
 }
 
 /* ---------- Zdarzenia ---------- */
@@ -182,4 +186,19 @@ export interface RealtimeMessage<T = unknown> {
   type: string;
   data?: T;
   timestamp?: IsoDateString;
+}
+
+/* ---------- Uwierzytelnianie ---------- */
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: 'admin' | 'viewer';
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  tokenType: 'bearer';
+  expiresAt: IsoDateString;
+  user: AuthUser;
 }

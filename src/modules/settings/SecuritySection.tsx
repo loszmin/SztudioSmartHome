@@ -4,11 +4,13 @@ import { Button } from '@/components/Button';
 import { Badge } from '@/components/Status';
 import { defaultSettings, useSettingsStore } from '@/stores/settingsStore';
 import { toast } from '@/stores/toastStore';
+import { LoginForm } from './LoginForm';
 import { InfoRow, Note, SettingsSection } from './SettingsSection';
 
 export function SecuritySection() {
   const apiToken = useSettingsStore((state) => state.apiToken);
   const serverUrl = useSettingsStore((state) => state.serverUrl);
+  const mode = useSettingsStore((state) => state.mode);
   const update = useSettingsStore((state) => state.update);
   const [confirming, setConfirming] = useState(false);
   const secure = typeof window !== 'undefined' && window.isSecureContext;
@@ -24,12 +26,21 @@ export function SecuritySection() {
     <SettingsSection
       id="bezpieczenstwo"
       title="Użytkownicy i bezpieczeństwo"
-      description="Stan zabezpieczeń tego panelu i dane zapisane w przeglądarce."
+      description="Logowanie do Sztudio Core, stan zabezpieczeń panelu i dane zapisane w przeglądarce."
       icon={UserCog}
     >
+      {mode === 'live' ? (
+        <div className="mb-4 rounded-lg border border-line bg-deep p-3 sm:p-4">
+          <LoginForm />
+        </div>
+      ) : (
+        <div className="mb-4">
+          <Note>Logowanie jest dostępne po wybraniu źródła danych „Sztudio Core” w sekcji połączenia.</Note>
+        </div>
+      )}
       <dl className="divide-y divide-line">
-        <InfoRow label="Token API">
-          <Badge tone={apiToken ? 'success' : 'neutral'}>{apiToken ? 'Ustawiony' : 'Nie ustawiono'}</Badge>
+        <InfoRow label="Token dostępu">
+          <Badge tone={apiToken ? 'success' : 'neutral'}>{apiToken ? 'Zapisany' : 'Brak'}</Badge>
         </InfoRow>
         <InfoRow label="Połączenie z serwerem">
           <Badge tone={encrypted ? 'success' : 'warning'}>{encrypted ? 'Szyfrowane (HTTPS)' : 'Nieszyfrowane (HTTP)'}</Badge>
@@ -40,8 +51,9 @@ export function SecuritySection() {
       </dl>
       <div className="mt-3 space-y-3">
         <Note>
-          Konta użytkowników i logowanie nie są dostępne w wersji 1.0 – zostaną dodane razem z Sztudio Core. Do tego czasu dostęp
-          do panelu należy ograniczać na poziomie sieci lokalnej, a dostęp do API – tokenem.
+          Token dostępu jest przechowywany w tej przeglądarce. Kontami użytkowników i tokenami API zarządza Sztudio Core
+          (API administracyjne oraz polecenie <span className="font-mono">python -m app.cli</span>); panel nie ma jeszcze
+          ekranu zarządzania użytkownikami.
         </Note>
         {confirming ? (
           <div className="flex flex-wrap items-center gap-2">

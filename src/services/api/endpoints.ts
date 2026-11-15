@@ -2,6 +2,7 @@ import type { RealtimeChannelName } from '@/types/api';
 
 /** Ścieżki REST Sztudio Core API v1. */
 export const API_PATHS = {
+  authLogin: '/api/v1/auth/login',
   systemStatus: '/api/v1/system/status',
   devices: '/api/v1/devices',
   cameras: '/api/v1/cameras',

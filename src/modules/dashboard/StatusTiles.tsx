@@ -49,8 +49,10 @@ export function StatusTiles() {
         icon={Cctv}
         label="Kamery online"
         value={cameras.data ? `${camerasOnline} / ${cameras.data.length}` : undefined}
-        detail={camerasOffline > 0 ? `${camerasOffline} offline` : 'Wszystkie kamery działają'}
-        tone={camerasOffline > 0 ? 'danger' : 'success'}
+        detail={
+          cameras.data?.length === 0 ? 'Brak skonfigurowanych kamer' : camerasOffline > 0 ? `${camerasOffline} offline` : 'Wszystkie kamery działają'
+        }
+        tone={cameras.data?.length === 0 ? 'neutral' : camerasOffline > 0 ? 'danger' : 'success'}
         unavailable={cameras.isError && !cameras.data}
       />
       <StatTile
@@ -86,8 +88,14 @@ export function StatusTiles() {
         icon={Network}
         label="Sieć"
         value={network.data ? `${networkOnline} / ${network.data.length}` : undefined}
-        detail={networkOffline > 0 ? `${networkOffline} ${plural(networkOffline, 'urządzenie', 'urządzenia', 'urządzeń')} offline` : 'Wszystkie urządzenia online'}
-        tone={networkOffline > 0 ? 'warning' : 'success'}
+        detail={
+          network.data?.length === 0
+            ? 'Brak zarejestrowanych urządzeń'
+            : networkOffline > 0
+              ? `${networkOffline} ${plural(networkOffline, 'urządzenie', 'urządzenia', 'urządzeń')} offline`
+              : 'Wszystkie urządzenia online'
+        }
+        tone={network.data?.length === 0 ? 'neutral' : networkOffline > 0 ? 'warning' : 'success'}
         unavailable={network.isError && !network.data}
       />
     </div>

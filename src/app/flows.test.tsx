@@ -188,3 +188,72 @@ describe('ustawienia', () => {
     expect(await section.findByRole('status')).toHaveTextContent('Serwer jest nieosiągalny');
   });
 });
+
+describe('logowanie do Sztudio Core', () => {
+  const statusBody = {
+    core: { state: 'online', version: '1.0.0', hostname: 'core', uptimeSeconds: 60 },
+    resources: { cpuPercent: 1, memoryPercent: 2, diskPercent: 3 },
+    services: [],
+    alarmSystem: { mode: 'disarmed', changedAt: new Date().toISOString() },
+    serverTime: new Date().toISOString(),
+  };
+
+  /** Serwer wymagający tokenu „dobry-token”; logowanie przyjmuje admin / tajne-haslo. */
+  function stubSecuredServer() {
+    const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
+      const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+      if (url.endsWith('/api/v1/auth/login')) {
+        const body = JSON.parse(String(init.body)) as { username: string; password: string };
+        return body.username === 'admin' && body.password === 'tajne-haslo'
+          ? reply({ accessToken: 'dobry-token', tokenType: 'bearer', expiresAt: new Date().toISOString(), user: { id: 'u1', username: 'admin', role: 'admin' } })
+          : reply({ detail: 'Nieprawidłowy login lub hasło.' }, 401);
+      }
+      const authorized = (init.headers as Record<string, string>).Authorization === 'Bearer dobry-token';
+      if (!authorized) return reply({ detail: 'Wymagane uwierzytelnienie.' }, 401);
+      return reply(url.endsWith('/system/status') ? statusBody : []);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('bez tokenu pokazuje wezwanie do zalogowania, a po zalogowaniu pobiera dane', async () => {
+    useSettingsStore.setState({ mode: 'live', serverUrl: 'http://core.test:8000' });
+    stubSecuredServer();
+    const { user } = renderApp('/ustawienia');
+
+    expect(await screen.findByText('Sztudio Core wymaga zalogowania.')).toBeInTheDocument();
+    const form = within(screen.getByRole('form', { name: 'Logowanie do Sztudio Core' }));
+
+    await user.type(form.getByLabelText('Login'), 'admin');
+    await user.type(form.getByLabelText('Hasło'), 'zle-haslo');
+    await user.click(form.getByRole('button', { name: 'Zaloguj' }));
+    expect(await form.findByRole('alert')).toHaveTextContent('Nieprawidłowy login lub hasło.');
+    expect(useSettingsStore.getState().apiToken).toBe('');
+
+    await user.clear(form.getByLabelText('Hasło'));
+    await user.type(form.getByLabelText('Hasło'), 'tajne-haslo');
+    await user.click(form.getByRole('button', { name: 'Zaloguj' }));
+
+    expect(await main().findByText(/Zalogowano jako/)).toBeInTheDocument();
+    expect(useSettingsStore.getState()).toMatchObject({ apiToken: 'dobry-token', authUsername: 'admin' });
+    await waitFor(() => expect(screen.queryByText('Sztudio Core wymaga zalogowania.')).not.toBeInTheDocument());
+
+    await user.click(main().getByRole('button', { name: 'Wyloguj' }));
+    expect(useSettingsStore.getState().apiToken).toBe('');
+    expect(screen.getByRole('form', { name: 'Logowanie do Sztudio Core' })).toBeInTheDocument();
+  });
+
+  it('obsługuje urządzenia, które nigdy nie były widziane (lastSeenAt: null)', async () => {
+    useSettingsStore.setState({ mode: 'live', serverUrl: 'http://core.test:8000', apiToken: 'dobry-token' });
+    const fetchMock = stubSecuredServer();
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.endsWith('/network/devices')
+        ? new Response(JSON.stringify([{ id: 'n1', name: 'Router', type: 'router', ipAddress: '10.0.0.1', vendor: '', status: 'offline', lastSeenAt: null }]))
+        : base(url, init),
+    );
+    renderApp('/siec');
+    const row = (await within(await main().findByRole('table')).findAllByText('Router'))[0]!.closest('tr')!;
+    expect(within(row).getByText('nigdy')).toBeInTheDocument();
+  });
+});

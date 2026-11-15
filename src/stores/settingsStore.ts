@@ -19,6 +19,8 @@ export interface SettingsState {
   serverUrl: string;
   /** Opcjonalny token API wysyłany w nagłówku Authorization. */
   apiToken: string;
+  /** Login użytkownika, którego token jest zapisany (pusty przy ręcznie wklejonym tokenie). */
+  authUsername: string;
   /** Adres go2rtc; pusty = `<adres Core>/go2rtc`. */
   go2rtcUrl: string;
   refreshIntervalSec: number;
@@ -38,6 +40,7 @@ export const defaultSettings = {
   mode: (env.VITE_DEFAULT_MODE === 'live' ? 'live' : 'demo') as DataMode,
   serverUrl: env.VITE_CORE_URL ?? '',
   apiToken: '',
+  authUsername: '',
   go2rtcUrl: env.VITE_GO2RTC_URL ?? '',
   refreshIntervalSec: 10,
   defaultLayout: 4 as CameraLayout,

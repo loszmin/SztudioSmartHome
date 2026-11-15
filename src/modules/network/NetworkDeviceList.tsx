@@ -57,8 +57,8 @@ export function NetworkDeviceList({ devices }: { devices: NetworkDevice[] }) {
                 <td className="px-4 py-2.5 text-silver">{device.vendor}</td>
                 <td className="px-4 py-2.5"><ConnectionBadge status={device.status} /></td>
                 <td className="tabular px-4 py-2.5 text-silver">{latencyText(device)}</td>
-                <td className="px-4 py-2.5 text-silver" title={formatDateTime(device.lastSeenAt, hour12)}>
-                  <time dateTime={device.lastSeenAt}>{formatRelative(device.lastSeenAt)}</time>
+                <td className="px-4 py-2.5 text-silver" title={device.lastSeenAt ? formatDateTime(device.lastSeenAt, hour12) : undefined}>
+                  <time dateTime={device.lastSeenAt ?? undefined}>{formatRelative(device.lastSeenAt)}</time>
                 </td>
               </tr>
             ))}

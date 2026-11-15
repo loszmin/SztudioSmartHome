@@ -1,0 +1,47 @@
+# Sztudio Smart Home – PostgreSQL + Sztudio Core + panel WWW.
+# Przed pierwszym uruchomieniem skopiuj .env.example do .env i ustaw hasła.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sztudio
+      POSTGRES_USER: sztudio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w pliku .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sztudio -d sztudio"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Baza nie jest wystawiana poza sieć wewnętrzną Compose.
+
+  core:
+    build: ./core
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SZTUDIO_ENVIRONMENT: ${SZTUDIO_ENVIRONMENT:-production}
+      SZTUDIO_DATABASE_URL: postgresql+psycopg://sztudio:${POSTGRES_PASSWORD}@db:5432/sztudio
+      SZTUDIO_SECRET_KEY: ${SZTUDIO_SECRET_KEY:?Ustaw SZTUDIO_SECRET_KEY w pliku .env}
+      SZTUDIO_ADMIN_USERNAME: ${SZTUDIO_ADMIN_USERNAME:-admin}
+      SZTUDIO_ADMIN_PASSWORD: ${SZTUDIO_ADMIN_PASSWORD:?Ustaw SZTUDIO_ADMIN_PASSWORD w pliku .env}
+      SZTUDIO_CORS_ORIGINS: ${SZTUDIO_CORS_ORIGINS:-}
+    # API jest dostępne przez usługę „web” (ten sam adres co panel).
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      core:
+        condition: service_healthy
+    ports:
+      - "${SZTUDIO_HTTP_PORT:-8080}:80"
+
+volumes:
+  db-data:

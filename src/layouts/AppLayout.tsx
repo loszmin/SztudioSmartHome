@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/Toaster';
 import { useAlarmNotifications } from '@/hooks/useAlarmNotifications';
@@ -12,9 +13,16 @@ import { TopBar } from './TopBar';
 /** Główny układ: panel boczny (desktop), pasek statusu, obszar roboczy, dolna nawigacja (telefon). */
 export function AppLayout() {
   const density = useSettingsStore((state) => state.density);
+  const apiToken = useSettingsStore((state) => state.apiToken);
+  const queryClient = useQueryClient();
   const { pathname } = useLocation();
   useRealtimeSync();
   useAlarmNotifications();
+
+  // Zalogowanie lub wylogowanie – dane trzeba pobrać ponownie od razu, nie przy następnym odświeżeniu.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ['core'] });
+  }, [apiToken, queryClient]);
 
   useEffect(() => {
     document.documentElement.dataset.density = density;

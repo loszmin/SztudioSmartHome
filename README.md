@@ -6,11 +6,33 @@ Panel WWW (PWA) prywatnego systemu monitoringu i bezpieczeństwa domu: kamery IP
 czujniki, alarmy, sieć lokalna i historia zdarzeń. Działa lokalnie, bez dostępu do internetu
 (czcionki i ikony są wbudowane w aplikację).
 
-Ten sam panel obsługuje desktop / Windows (instalowalne PWA, panel boczny) oraz telefony
-(dolna nawigacja). Backend **Sztudio Core** jeszcze nie istnieje – panel ma gotową warstwę
-komunikacji i do czasu jego powstania pracuje w **trybie demonstracyjnym**.
+Repozytorium zawiera dwie części:
 
-## Uruchomienie
+- **Panel WWW** (ten katalog) – React + TypeScript, instalowalne PWA dla desktopu / Windows i telefonów.
+- **Sztudio Core** ([`core/`](core/README.md)) – backend FastAPI + PostgreSQL: REST API, WebSocket, logowanie.
+
+Integracje sprzętowe (BCS, RTSP, ONVIF, go2rtc, MQTT) **nie są jeszcze zaimplementowane** – zob. „Stan realizacji”.
+
+## Szybki start (Docker Compose)
+
+```bash
+cp .env.example .env
+```
+
+Uzupełnij w `.env`: `POSTGRES_PASSWORD`, `SZTUDIO_SECRET_KEY` (min. 32 znaki) i `SZTUDIO_ADMIN_PASSWORD`, a następnie:
+
+```bash
+docker compose up -d --build
+```
+
+Panel: `http://<adres-hosta>:8080` → **Ustawienia → Użytkownicy i bezpieczeństwo → Zaloguj**
+(login z `SZTUDIO_ADMIN_USERNAME`). Compose uruchamia PostgreSQL, Core (migracje stosowane przy starcie)
+i nginx z panelem, który pośredniczy w ruchu `/api` i `/ws`. Baza i Core nie są wystawiane na hoście.
+
+Świeża instalacja jest pusta – kamery, rejestratory i czujniki dodaje się przez API administratora
+(zob. [`core/README.md`](core/README.md)), dopóki nie powstaną integracje sprzętowe.
+
+## Panel WWW – praca deweloperska
 
 Wymagany Node.js 20+.
 
@@ -25,7 +47,8 @@ npm test           # testy (Vitest + Testing Library)
 ## Połączenie z Sztudio Core
 
 Adres serwera nie jest zapisany w kodzie. Ustawia się go w aplikacji:
-**Ustawienia → Połączenie z Sztudio Core** (źródło danych, adres, opcjonalny token API, test połączenia).
+**Ustawienia → Połączenie z Sztudio Core** (źródło danych, adres, test połączenia), a loguje w sekcji
+**Użytkownicy i bezpieczeństwo** (login i hasło → token dostępu; alternatywnie ręcznie wklejony token API).
 Puste pole adresu oznacza „ten sam adres, z którego otwarto panel” – wygodne, gdy Core sam serwuje `dist/`.
 
 Wartości domyślne przy pierwszym uruchomieniu można podać przy budowaniu (`.env`, zob. `.env.example`):
@@ -47,8 +70,8 @@ JSON w camelCase, daty ISO 8601. Typy: [`src/types/api.ts`](src/types/api.ts), �
 | POST | `/api/v1/alarms/{id}/acknowledge` | `Alarm` |
 | PUT | `/api/v1/alarms/arming` `{ "mode": "disarmed" \| "armed_home" \| "armed_away" }` | `AlarmSystemState` |
 
-Dwa ostatnie punkty (potwierdzenie alarmu, zmiana trybu uzbrojenia) nie były w pierwotnej specyfikacji –
-to propozycja frontendu, do uzgodnienia przy implementacji Core.
+Wszystkie punkty wymagają nagłówka `Authorization: Bearer <token>`; token wydaje `POST /api/v1/auth/login`.
+Pełny kontrakt (w tym API administracyjne) opisuje [`core/README.md`](core/README.md).
 
 WebSocket: `/ws/v1/events`, `/ws/v1/system`, `/ws/v1/cameras`, `/ws/v1/alarms`. Panel oczekuje komunikatów
 JSON z polem `type`; każdy komunikat powoduje odświeżenie powiązanych danych przez REST. Połączenia są
@@ -93,28 +116,30 @@ zamiast nieaktualnych danych.
 kontekście – `https://` lub `http://localhost`. Panel otwarty jako `http://192.168.x.x` działa normalnie,
 ale bez instalacji i pracy offline. Docelowo Core powinien udostępniać panel przez HTTPS (np. certyfikat lokalny).
 
-## Stan realizacji (wersja 1.0.0)
+## Stan realizacji
 
-| Etap | Zakres | Stan |
-| --- | --- | --- |
-| 1 | Fundament: Vite, React, TypeScript, Tailwind, Router, TanStack Query | gotowe |
-| 2 | System wizualny, logo, nawigacja, pasek statusu | gotowe |
-| 3 | Dashboard | gotowe |
-| 4 | Monitoring kamer: układy 1/4/6/9, pełny ekran, wybór kamery, stronicowanie | gotowe (bez weryfikacji na sprzęcie) |
-| 5 | Alarmy (uzbrojenie, potwierdzanie, historia) i czujniki | gotowe |
-| 6 | Sieć LAN | gotowe |
-| 7 | Historia zdarzeń (filtry: kategoria, daty) i ustawienia | gotowe, z ograniczeniami poniżej |
-| 8 | PWA i responsywność | gotowe |
-| 9 | Testy | 40 testów: komponenty, usługi, przepływy |
+### Etap 1 – panel WWW (1.0.0)
+
+Dashboard, monitoring kamer (układy 1/4/6/9, pełny ekran), alarmy, czujniki, sieć, historia zdarzeń,
+ustawienia, PWA, układ mobilny, tryb demonstracyjny. 42 testy (Vitest).
+
+### Etap 2 – Sztudio Core (1.0.0)
+
+REST API zgodne z typami panelu, WebSocket (4 kanały), logowanie administratora, role, tokeny API,
+potwierdzanie alarmów, tryb uzbrojenia, reguły alarmów dla odczytów czujników, migracje Alembic,
+Docker Compose. 48 testów (pytest, PostgreSQL). Szczegóły: [`core/README.md`](core/README.md).
 
 ### Czego jeszcze nie ma
 
-- **Sztudio Core** (FastAPI, PostgreSQL, MQTT, ONVIF/RTSP) – poza zakresem tego repozytorium na tym etapie.
-- **Weryfikacji na rzeczywistym sprzęcie**: klient go2rtc/WebRTC i tryb „live” były sprawdzane wyłącznie
-  testami z podstawionym serwerem oraz scenariuszem „serwer niedostępny”. Nie były uruchamiane z prawdziwym
-  go2rtc ani rejestratorem BCS.
-- **Logowania i kont użytkowników** – sekcja ustawień pokazuje tylko stan zabezpieczeń i token API.
-- **Edycji integracji BCS i listy kamer z panelu** – sekcje są tylko do odczytu (dane z Core).
-- **Sterowania PTZ i odtwarzania nagrań.**
-- **Powiadomień w tle (push)** – powiadomienia systemowe działają, gdy panel jest otwarty.
-- **Aplikacji Android (Kotlin / Jetpack Compose)** – układ mobilny jest zrealizowany jako responsywny panel WWW/PWA.
+- **Integracji sprzętowych**: BCS Point / BCS Line, RTSP, ONVIF, go2rtc, MQTT. Core ma dla nich modele
+  i punkty wejścia, ale żaden kod nie łączy się z urządzeniami – statusy kamer, rejestratorów i czujników
+  zmieniają się tylko przez API. `/system/status` raportuje te integracje jako zatrzymane.
+- **Obrazu z kamer**: wymaga go2rtc i konfiguracji strumieni. Klient WebRTC w panelu nie był uruchamiany
+  z prawdziwym go2rtc; bez niego kafel kamery pokazuje „Brak obrazu”.
+- **Wykrywania urządzeń w sieci** (skanowanie LAN, pomiar opóźnień) – lista sieci jest prowadzona ręcznie przez API.
+- **Ekranów administracyjnych w panelu**: dodawanie kamer, rejestratorów, czujników, użytkowników i tokenów
+  odbywa się przez API / CLI. Sekcje „Integracja BCS” i „Konfiguracja kamer” są tylko do odczytu.
+- **Zarządzania wieloma użytkownikami przez API** – istnieje konto administratora (CLI) i tokeny API z rolą.
+- **HTTPS** – Compose wystawia panel po HTTP; instalacja PWA wymaga HTTPS lub `localhost` (zob. „PWA”).
+- **Powiadomień w tle (push)**, **PTZ**, **odtwarzania nagrań**.
+- **Aplikacji Android (Kotlin / Jetpack Compose)** – układ mobilny działa jako responsywny panel WWW/PWA.

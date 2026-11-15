@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { CheckCircle2, PlugZap, Save, TriangleAlert, Unplug } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Field, TextInput } from '@/components/FormControls';
@@ -36,6 +36,9 @@ export function ConnectionSection() {
   const [serverUrl, setServerUrl] = useState(settings.serverUrl);
   const [apiToken, setApiToken] = useState(settings.apiToken);
   const [testing, setTesting] = useState(false);
+
+  // Logowanie / wylogowanie w innej sekcji zmienia zapisany token.
+  useEffect(() => setApiToken(settings.apiToken), [settings.apiToken]);
   const [result, setResult] = useState<TestResult>(null);
 
   const urlValid = isValidServerUrl(serverUrl);
@@ -44,7 +47,14 @@ export function ConnectionSection() {
   const save = (event: FormEvent) => {
     event.preventDefault();
     if (!urlValid) return;
-    settings.update({ mode, serverUrl: normalizeUrl(serverUrl), apiToken: apiToken.trim() });
+    const token = apiToken.trim();
+    settings.update({
+      mode,
+      serverUrl: normalizeUrl(serverUrl),
+      apiToken: token,
+      // Ręczna zmiana tokenu oznacza, że nie pochodzi on już z logowania.
+      authUsername: token === settings.apiToken ? settings.authUsername : '',
+    });
     setServerUrl(normalizeUrl(serverUrl));
     toast.success(mode === 'demo' ? 'Zapisano. Panel działa w trybie demonstracyjnym.' : 'Zapisano ustawienia połączenia.');
   };
@@ -115,7 +125,7 @@ export function ConnectionSection() {
               />
             )}
           </Field>
-          <Field label="Token API (opcjonalnie)" hint="Wysyłany w nagłówku Authorization. Przechowywany lokalnie w tej przeglądarce.">
+          <Field label="Token API (opcjonalnie)" hint="Alternatywa dla logowania (sekcja „Użytkownicy i bezpieczeństwo”). Przechowywany lokalnie w tej przeglądarce.">
             {(field) => (
               <TextInput
                 {...field}
