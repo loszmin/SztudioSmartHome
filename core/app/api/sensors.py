@@ -35,7 +35,7 @@ def update_sensor(
     sensor_id: str, body: schemas.SensorUpdate, _: AdminPrincipal, session: DbSession, hub: Hub
 ) -> models.Sensor:
     sensor = get_or_404(session, models.Sensor, sensor_id, "czujnik")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in schemas.changes_of(body).items():
         if value is not None or field == "unit":
             setattr(sensor, field, value)
     _notify(session, "sensor.updated", sensor)

@@ -1,7 +1,7 @@
 """Schematy API – kontrakt zgodny z typami frontendu (`src/types/api.ts`): JSON w camelCase, daty ISO 8601 UTC."""
 
 from datetime import datetime
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 from pydantic.alias_generators import to_camel
@@ -144,10 +144,36 @@ class DeviceOut(ApiModel):
     last_seen_at: datetime | None
 
 
+# ---------- Diagnostyka (pola wspólne) ----------
+
+
+class DiagnosticsFields(ApiModel):
+    """Wynik ostatnich prób połączenia z urządzeniem."""
+
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    response_time_ms: int | None = None
+
+
+def diagnostics_of(item: models.DiagnosticsMixin) -> dict[str, Any]:
+    return {
+        "last_attempt_at": item.last_attempt_at,
+        "last_success_at": item.last_success_at,
+        "error_code": item.last_error_code,
+        "error_message": item.last_error_message,
+        "response_time_ms": item.response_time_ms,
+    }
+
+
 # ---------- Rejestratory ----------
 
+Port = Annotated[int, Field(ge=1, le=65535)]
+Host = Annotated[str, Field(min_length=1, max_length=255)]
 
-class RecorderOut(ApiModel):
+
+class RecorderOut(DiagnosticsFields):
     keep_null: ClassVar[frozenset[str]] = frozenset({"last_seen_at"})
 
     id: str
@@ -158,12 +184,17 @@ class RecorderOut(ApiModel):
     firmware: str | None = None
     ip_address: str | None = None
     port: int | None = None
+    rtsp_port: int | None = None
+    onvif_port: int | None = None
+    rtsp_path_template: str | None = None
     channels: int | None = None
     username: str | None = None
     #: Czy zapisano hasło – samo hasło nigdy nie jest zwracane.
     has_password: bool
     status: ConnectionStatus
     last_seen_at: datetime | None
+    #: Wynik ostatniej weryfikacji protokołów.
+    protocols: list[dict[str, Any]] | None = None
 
 
 class RecorderCreate(ApiModel):
@@ -172,8 +203,11 @@ class RecorderCreate(ApiModel):
     series: RecorderSeries = "other"
     model: str = Field(default="", max_length=100)
     firmware: str | None = Field(default=None, max_length=64)
-    ip_address: str | None = Field(default=None, max_length=45)
-    port: int | None = Field(default=None, ge=1, le=65535)
+    ip_address: Host | None = None
+    port: Port | None = None
+    rtsp_port: Port | None = None
+    onvif_port: Port | None = None
+    rtsp_path_template: str | None = Field(default=None, max_length=512)
     channels: int | None = Field(default=None, ge=1, le=256)
     username: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, max_length=256)
@@ -185,19 +219,50 @@ class RecorderUpdate(ApiModel):
     series: RecorderSeries | None = None
     model: str | None = Field(default=None, max_length=100)
     firmware: str | None = Field(default=None, max_length=64)
-    ip_address: str | None = Field(default=None, max_length=45)
-    port: int | None = Field(default=None, ge=1, le=65535)
+    ip_address: Host | None = None
+    port: Port | None = None
+    rtsp_port: Port | None = None
+    onvif_port: Port | None = None
+    rtsp_path_template: str | None = Field(default=None, max_length=512)
     channels: int | None = Field(default=None, ge=1, le=256)
     username: str | None = Field(default=None, max_length=100)
-    #: Pusty tekst usuwa zapisane hasło.
+    #: Pominięte = bez zmian; pusty tekst usuwa zapisane hasło.
     password: str | None = Field(default=None, max_length=256)
     status: ConnectionStatus | None = None
 
 
+class RecorderTestRequest(ApiModel):
+    """Test połączenia przed zapisem. `recorderId` pozwala użyć zapisanego hasła, gdy pole hasła jest puste."""
+
+    recorder_id: str | None = None
+    series: RecorderSeries = "other"
+    ip_address: Host
+    port: Port | None = None
+    rtsp_port: Port | None = None
+    onvif_port: Port | None = None
+    username: str | None = Field(default=None, max_length=100)
+    password: str | None = Field(default=None, max_length=256)
+
+
+class ChannelImportItem(ApiModel):
+    number: int = Field(ge=1, le=256)
+    name: str | None = Field(default=None, max_length=100)
+    #: Nazwa wybranego profilu z listy kanałów; pominięta = pierwszy profil z adresem strumienia.
+    profile: str | None = Field(default=None, max_length=64)
+
+
+class ChannelImportRequest(ApiModel):
+    channels: list[ChannelImportItem] = Field(min_length=1, max_length=256)
+
+
 # ---------- Kamery ----------
 
+StreamState = Literal["not_configured", "disabled", "registered", "error"]
 
-class CameraOut(ApiModel):
+
+class CameraOut(DiagnosticsFields):
+    """Dane kamery dla panelu. Nie zawiera adresu źródłowego ani danych logowania."""
+
     keep_null: ClassVar[frozenset[str]] = frozenset({"signal_quality", "last_seen_at"})
 
     id: str
@@ -212,43 +277,214 @@ class CameraOut(ApiModel):
     fps: int | None = None
     recording: bool
     last_seen_at: datetime | None
+    enabled: bool = True
+    stream_state: StreamState = "not_configured"
+    stream_profile: str | None = None
+    recorder_id: str | None = None
+
+    @classmethod
+    def from_model(cls, camera: models.Camera) -> "CameraOut":
+        return cls(**_camera_fields(camera, CameraOut))
 
 
-class CameraCreate(ApiModel):
+def _camera_fields(camera: models.Camera, schema: type[ApiModel]) -> dict[str, Any]:
+    data = {name: getattr(camera, name) for name in schema.model_fields if hasattr(camera, name)}
+    data.update(diagnostics_of(camera))
+    return data
+
+
+class CameraConfig(CameraOut):
+    """Pełna konfiguracja kamery – tylko dla administratora. Hasło nigdy nie jest zwracane."""
+
+    host: str | None = None
+    rtsp_port: int | None = None
+    rtsp_path: str | None = None
+    onvif_port: int | None = None
+    username: str | None = None
+    has_password: bool = False
+    vendor: str = ""
+    model: str = ""
+    sort_order: int = 0
+
+    @classmethod
+    def from_model(cls, camera: models.Camera) -> "CameraConfig":
+        return cls(
+            **_camera_fields(camera, CameraConfig),
+            host=camera.ip_address,
+            has_password=camera.password_encrypted is not None,
+        )
+
+
+class CameraConnection(ApiModel):
+    """Parametry połączenia RTSP – wspólne dla tworzenia, edycji i testu."""
+
+    host: Host | None = None
+    rtsp_port: Port | None = None
+    rtsp_path: str | None = Field(default=None, max_length=1024)
+    #: Alternatywa: pełny adres rtsp://… – rozkładany na pola po stronie serwera, hasło jest szyfrowane.
+    rtsp_url: str | None = Field(default=None, max_length=2048)
+    username: str | None = Field(default=None, max_length=100)
+    #: Tylko do zapisu. Przy edycji: pominięte = bez zmian, pusty tekst = usunięcie.
+    password: str | None = Field(default=None, max_length=256)
+
+
+class CameraCreate(CameraConnection):
     name: str = Field(min_length=1, max_length=100)
     location: str = Field(default="", max_length=100)
     source: CameraSource = "rtsp"
     recorder_id: str | None = None
     channel: int | None = Field(default=None, ge=1, le=256)
-    stream_name: str = Field(pattern=STREAM_NAME_PATTERN)
-    #: Adres źródłowy strumienia – tylko do zapisu, przechowywany w postaci zaszyfrowanej.
-    stream_url: str | None = Field(default=None, max_length=1024)
-    ip_address: str | None = Field(default=None, max_length=45)
+    #: Nazwa strumienia w go2rtc; pominięta = nadawana automatycznie.
+    stream_name: str | None = Field(default=None, pattern=STREAM_NAME_PATTERN)
+    onvif_port: Port | None = None
+    stream_profile: str | None = Field(default=None, max_length=64)
     vendor: str = Field(default="", max_length=64)
     model: str = Field(default="", max_length=100)
     resolution: str | None = Field(default=None, max_length=32)
     fps: int | None = Field(default=None, ge=1, le=240)
     recording: bool = False
+    enabled: bool = True
     sort_order: int = 0
 
 
-class CameraUpdate(ApiModel):
+class CameraUpdate(CameraConnection):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     location: str | None = Field(default=None, max_length=100)
     source: CameraSource | None = None
     recorder_id: str | None = None
     channel: int | None = Field(default=None, ge=1, le=256)
     stream_name: str | None = Field(default=None, pattern=STREAM_NAME_PATTERN)
-    stream_url: str | None = Field(default=None, max_length=1024)
-    ip_address: str | None = Field(default=None, max_length=45)
+    onvif_port: Port | None = None
+    stream_profile: str | None = Field(default=None, max_length=64)
     vendor: str | None = Field(default=None, max_length=64)
     model: str | None = Field(default=None, max_length=100)
     resolution: str | None = Field(default=None, max_length=32)
     fps: int | None = Field(default=None, ge=1, le=240)
     recording: bool | None = None
+    enabled: bool | None = None
     sort_order: int | None = None
+    #: Ręczne zgłoszenie stanu (dla integracji zewnętrznych); zwykle stan ustawia monitor.
     status: ConnectionStatus | None = None
     signal_quality: int | None = Field(default=None, ge=0, le=100)
+
+
+class CameraTestRequest(CameraConnection):
+    """Test połączenia przed zapisem. `cameraId` / `recorderId` pozwalają użyć zapisanego hasła."""
+
+    camera_id: str | None = None
+    recorder_id: str | None = None
+
+
+class ProbeTrack(ApiModel):
+    media: str
+    codec: str
+
+
+class ProbeOut(ApiModel):
+    """Wynik testu połączenia."""
+
+    ok: bool
+    code: str
+    message: str
+    response_time_ms: int | None = None
+    tracks: list[ProbeTrack] = []
+    server: str | None = None
+
+
+# ---------- ONVIF ----------
+
+
+class OnvifDiscoverRequest(ApiModel):
+    #: `multicast` – rozgłoszenie w sieci Core; `subnet` – zapytania kierowane do każdego adresu podsieci.
+    mode: Literal["multicast", "subnet"] = "multicast"
+    network: str | None = Field(default=None, max_length=64)
+    timeout_seconds: float = Field(default=3.0, ge=1, le=15)
+
+
+class OnvifDiscoveredDevice(ApiModel):
+    ip: str
+    onvif_port: int
+    name: str | None = None
+    hardware: str | None = None
+    location: str | None = None
+    likely_bcs: bool = False
+    #: Kamera lub rejestrator o tym adresie jest już w systemie.
+    already_added: bool = False
+
+
+class OnvifDiscoverResponse(ApiModel):
+    mode: Literal["multicast", "subnet"]
+    scanned_hosts: int
+    devices: list[OnvifDiscoveredDevice]
+
+
+class OnvifInspectRequest(ApiModel):
+    host: Host
+    port: Port = 80
+    username: str | None = Field(default=None, max_length=100)
+    password: str | None = Field(default=None, max_length=256)
+    camera_id: str | None = None
+    recorder_id: str | None = None
+
+
+class OnvifProfileOut(ApiModel):
+    token: str
+    name: str
+    video_source: str | None = None
+    encoding: str | None = None
+    resolution: str | None = None
+    fps: int | None = None
+    rtsp_port: int | None = None
+    rtsp_path: str | None = None
+    error: str | None = None
+
+
+class OnvifDeviceOut(ApiModel):
+    manufacturer: str | None = None
+    model: str | None = None
+    firmware: str | None = None
+    serial_number: str | None = None
+    profiles: list[OnvifProfileOut]
+
+
+# ---------- Diagnostyka ----------
+
+
+class Go2rtcStatus(ApiModel):
+    state: Literal["running", "error", "not_configured"]
+    version: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    checked_at: datetime | None = None
+    #: Liczba strumieni zarejestrowanych w go2rtc.
+    streams: int | None = None
+
+
+class MonitorStatus(ApiModel):
+    enabled: bool
+    interval_seconds: int
+    last_run_at: datetime | None = None
+    last_duration_ms: int | None = None
+
+
+class DeviceDiagnostics(DiagnosticsFields):
+    id: str
+    kind: Literal["camera", "recorder"]
+    name: str
+    address: str | None = None
+    status: ConnectionStatus
+    enabled: bool = True
+    stream_state: StreamState | None = None
+    #: Liczba otwartych podglądów i stan połączenia go2rtc ze źródłem (tylko kamery).
+    stream_consumers: int | None = None
+    stream_connected: bool | None = None
+
+
+class DiagnosticsOut(ApiModel):
+    generated_at: datetime
+    go2rtc: Go2rtcStatus = Field(alias="go2rtc")
+    monitor: MonitorStatus
+    devices: list[DeviceDiagnostics]
 
 
 # ---------- Czujniki ----------
@@ -393,6 +629,14 @@ class NetworkDeviceUpdate(ApiModel):
     vendor: str | None = Field(default=None, max_length=64)
     status: ConnectionStatus | None = None
     latency_ms: int | None = Field(default=None, ge=0)
+
+
+def changes_of(model: ApiModel, *, exclude: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
+    """Pola jawnie przesłane w żądaniu – łącznie z ustawionymi na null (czyszczenie wartości).
+
+    `model_dump` nie nadaje się do tego: serializator schematów pomija wartości puste.
+    """
+    return {name: getattr(model, name) for name in model.model_fields_set if name not in exclude}
 
 
 def dump(model: ApiModel) -> dict[str, Any]:

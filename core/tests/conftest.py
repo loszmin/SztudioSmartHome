@@ -15,6 +15,7 @@ from sqlalchemy import text
 from app.config import Settings
 from app.db import Base, make_engine
 from app.main import create_app
+from tests.fakes import FakeGo2rtc, FakeOnvifDevice, FakeRtspServer, LoopThread
 
 TEST_DATABASE_URL = os.environ.get(
     "SZTUDIO_TEST_DATABASE_URL", "postgresql+psycopg://sztudio:sztudio@127.0.0.1:5432/sztudio_test"
@@ -41,6 +42,12 @@ def make_settings(**overrides: object) -> Settings:
         "admin_password": ADMIN_PASSWORD,
         "login_max_attempts": 3,
         "login_lockout_seconds": 60,
+        # Atrapy urządzeń działają na 127.0.0.1 – w produkcji pętla zwrotna nie jest dozwolona.
+        "allowed_device_networks": "127.0.0.0/8",
+        "denied_device_networks": "127.0.0.200/32",
+        "monitor_interval_seconds": 0,  # cykle monitora wywołują testy
+        "monitor_failure_threshold": 2,
+        "device_timeout_seconds": 1.0,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[arg-type]
@@ -92,3 +99,40 @@ def viewer(client: TestClient, admin: dict[str, str]) -> dict[str, str]:
     response = client.post("/api/v1/auth/tokens", json={"name": "panel", "role": "viewer"}, headers=admin)
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+# ---------- atrapy urządzeń ----------
+
+
+@pytest.fixture(scope="session")
+def fake_loop() -> Iterator[LoopThread]:
+    loop = LoopThread()
+    yield loop
+    loop.stop()
+
+
+@pytest.fixture
+def rtsp_server(fake_loop: LoopThread) -> Iterator[FakeRtspServer]:
+    server = FakeRtspServer(
+        paths=("/stream1", "/cam/realmonitor?channel=1&subtype=0", "/onvif/main", "/onvif/sub")
+    )
+    server.loop = fake_loop  # type: ignore[attr-defined]
+    fake_loop.run(server.start())
+    yield server
+    fake_loop.run(server.stop())
+
+
+@pytest.fixture
+def onvif_device(fake_loop: LoopThread, rtsp_server: FakeRtspServer) -> Iterator[FakeOnvifDevice]:
+    device = FakeOnvifDevice(rtsp_port=rtsp_server.port)
+    fake_loop.run(device.start())
+    yield device
+    fake_loop.run(device.stop())
+
+
+@pytest.fixture
+def go2rtc(client: TestClient) -> FakeGo2rtc:
+    """Podłącza atrapę go2rtc do monitora uruchomionej aplikacji."""
+    fake = FakeGo2rtc()
+    client.app.state.monitor.go2rtc = fake
+    return fake

@@ -13,13 +13,10 @@ from app.services.alarms import get_alarm_system
 router = APIRouter(prefix="/system", tags=["System"])
 public_router = APIRouter(tags=["System"])
 
-#: Integracje sprzętowe, które nie są jeszcze zaimplementowane – raportowane jako zatrzymane.
-PLANNED_INTEGRATIONS = [
-    ("go2rtc", "go2rtc (integracja nieaktywna)"),
-    ("mqtt", "MQTT (integracja nieaktywna)"),
-    ("onvif", "ONVIF (integracja nieaktywna)"),
-    ("bcs", "BCS (integracja nieaktywna)"),
-]
+#: Integracje, które nie są jeszcze zaimplementowane – raportowane jako zatrzymane.
+PLANNED_INTEGRATIONS = [("mqtt", "MQTT (integracja nieaktywna)")]
+
+_GO2RTC_STATES = {"running": "running", "error": "error", "not_configured": "stopped"}
 
 
 @public_router.get("/health", summary="Kontrola stanu (bez uwierzytelnienia)")
@@ -38,9 +35,20 @@ def system_status(request: Request, session: DbSession) -> schemas.SystemStatus:
     alarm_system = get_alarm_system(session)
     session.commit()
     memory = psutil.virtual_memory()
+    monitor = request.app.state.monitor
+    go2rtc_state = monitor.go2rtc_health.get("state", "not_configured")
+    go2rtc_name = (
+        "go2rtc (strumienie wideo)" if go2rtc_state != "not_configured" else "go2rtc (nieskonfigurowany)"
+    )
     services = [
         schemas.CoreService(key="postgres", name="PostgreSQL", state="running" if database_ok else "error"),
         schemas.CoreService(key="websocket", name="WebSocket", state="running"),
+        schemas.CoreService(key="go2rtc", name=go2rtc_name, state=_GO2RTC_STATES[go2rtc_state]),  # type: ignore[arg-type]
+        schemas.CoreService(
+            key="monitor",
+            name="Monitor urządzeń",
+            state="running" if monitor.settings.monitor_interval_seconds > 0 else "stopped",
+        ),
         *(schemas.CoreService(key=key, name=name, state="stopped") for key, name in PLANNED_INTEGRATIONS),
     ]
     return schemas.SystemStatus(

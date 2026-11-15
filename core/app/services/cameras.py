@@ -9,7 +9,7 @@ from app.services.events import record_event
 
 
 def emit_camera(session: Session, camera: models.Camera, type_: str = "camera.updated") -> None:
-    emit(session, "cameras", type_, schemas.dump(schemas.CameraOut.model_validate(camera)))
+    emit(session, "cameras", type_, schemas.dump(schemas.CameraOut.from_model(camera)))
 
 
 def set_camera_status(session: Session, camera: models.Camera, status: str) -> None:

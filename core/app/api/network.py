@@ -35,7 +35,7 @@ def update_network_device(
     device_id: str, body: schemas.NetworkDeviceUpdate, _: AdminPrincipal, session: DbSession, hub: Hub
 ) -> models.NetworkDevice:
     device = get_or_404(session, models.NetworkDevice, device_id, "urządzenie sieciowe")
-    changes = body.model_dump(exclude_unset=True)
+    changes = schemas.changes_of(body)
     was_online = device.status == "online"
     for field, value in changes.items():
         if value is not None or field in ("mac_address", "latency_ms"):

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -18,6 +18,17 @@ def utcnow() -> datetime:
 
 
 Timestamp = DateTime(timezone=True)
+
+
+class DiagnosticsMixin:
+    """Wynik ostatnich prób połączenia z urządzeniem (wypełniany przez monitor i testy połączenia)."""
+
+    last_attempt_at: Mapped[datetime | None] = mapped_column(Timestamp)
+    last_success_at: Mapped[datetime | None] = mapped_column(Timestamp)
+    last_error_code: Mapped[str | None] = mapped_column(String(32))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class User(Base):
@@ -55,7 +66,7 @@ class ApiToken(Base):
     user: Mapped[User] = relationship()
 
 
-class Recorder(Base):
+class Recorder(DiagnosticsMixin, Base):
     __tablename__ = "recorders"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -65,8 +76,15 @@ class Recorder(Base):
     series: Mapped[str] = mapped_column(String(16), default="other")
     model: Mapped[str] = mapped_column(String(100), default="")
     firmware: Mapped[str | None] = mapped_column(String(64))
-    ip_address: Mapped[str | None] = mapped_column(String(45))
+    ip_address: Mapped[str | None] = mapped_column(String(255))
+    #: Port HTTP interfejsu urządzenia.
     port: Mapped[int | None] = mapped_column(Integer)
+    rtsp_port: Mapped[int | None] = mapped_column(Integer)
+    onvif_port: Mapped[int | None] = mapped_column(Integer)
+    #: Szablon ścieżki RTSP z polami {channel} i {subtype} – podawany przez użytkownika wg dokumentacji modelu.
+    rtsp_path_template: Mapped[str | None] = mapped_column(Text)
+    #: Wynik ostatniej weryfikacji protokołów (HTTP / RTSP / ONVIF).
+    protocols: Mapped[list | None] = mapped_column(JSON)
     channels: Mapped[int | None] = mapped_column(Integer)
     username: Mapped[str | None] = mapped_column(String(100))
     #: Hasło urządzenia zaszyfrowane kluczem wyprowadzonym z SZTUDIO_SECRET_KEY.
@@ -76,7 +94,7 @@ class Recorder(Base):
     created_at: Mapped[datetime] = mapped_column(Timestamp, default=utcnow)
 
 
-class Camera(Base):
+class Camera(DiagnosticsMixin, Base):
     __tablename__ = "cameras"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -90,9 +108,23 @@ class Camera(Base):
     channel: Mapped[int | None] = mapped_column(Integer)
     #: Nazwa strumienia w go2rtc – jedyny identyfikator wideo udostępniany klientom.
     stream_name: Mapped[str] = mapped_column(String(64), unique=True)
-    #: Adres źródłowy (RTSP/ONVIF, może zawierać dane logowania) – zaszyfrowany, nigdy nie zwracany przez API.
-    stream_url_encrypted: Mapped[str | None] = mapped_column(Text)
-    ip_address: Mapped[str | None] = mapped_column(String(45))
+    #: Adres IP lub nazwa hosta kamery; puste = adres rejestratora (kamera podłączona przez rejestrator).
+    ip_address: Mapped[str | None] = mapped_column(String(255))
+    rtsp_port: Mapped[int | None] = mapped_column(Integer)
+    #: Ścieżka RTSP wraz z parametrami (np. /stream1). Widoczna tylko dla administratora.
+    rtsp_path: Mapped[str | None] = mapped_column(Text)
+    onvif_port: Mapped[int | None] = mapped_column(Integer)
+    #: Nazwa wybranego profilu strumienia (np. „main”, „sub” albo nazwa profilu ONVIF).
+    stream_profile: Mapped[str | None] = mapped_column(String(64))
+    #: Dane logowania kamery; puste = dane rejestratora. Hasło zaszyfrowane, nigdy nie zwracane przez API.
+    username: Mapped[str | None] = mapped_column(String(100))
+    password_encrypted: Mapped[str | None] = mapped_column(Text)
+    #: Wyłączona kamera nie jest monitorowana ani udostępniana w go2rtc.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    #: Stan strumienia w go2rtc: not_configured / registered / error.
+    stream_state: Mapped[str] = mapped_column(
+        String(16), default="not_configured", server_default="not_configured"
+    )
     vendor: Mapped[str] = mapped_column(String(64), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
     resolution: Mapped[str | None] = mapped_column(String(32))

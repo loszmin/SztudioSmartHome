@@ -25,14 +25,14 @@ def test_system_status_contract(client, admin):
 
     services = {service["key"]: service["state"] for service in body["services"]}
     assert services["postgres"] == "running"
-    # Integracje sprzętowe nie istnieją – nie mogą być raportowane jako działające.
-    assert all(services[key] == "stopped" for key in ("go2rtc", "mqtt", "onvif", "bcs"))
+    # go2rtc nie jest skonfigurowany, monitor wyłączony, MQTT nie istnieje – nic nie udaje działania.
+    assert all(services[key] == "stopped" for key in ("go2rtc", "monitor", "mqtt"))
 
 
 def test_recorder_crud_never_exposes_password(client, admin):
     recorder = create(
         client, admin, "/recorders",
-        {"name": "NVR", "series": "bcs_point", "ipAddress": "192.168.1.20", "port": 80, "channels": 8,
+        {"name": "NVR", "series": "bcs_point", "ipAddress": "127.0.0.20", "port": 80, "channels": 8,
          "username": "admin", "password": "tajne-haslo-nvr"},
     )  # fmt: skip
     assert (
@@ -63,20 +63,25 @@ def test_camera_contract_and_hidden_stream_url(client, admin):
     camera = create(
         client, admin, "/cameras",
         {"name": "Wejście", "location": "Front", "source": "bcs", "recorderId": recorder["id"], "channel": 1,
-         "streamName": "bcs_ch1", "streamUrl": "rtsp://admin:haslo@192.168.1.20:554/ch1", "resolution": "1920×1080"},
+         "streamName": "bcs_ch1", "rtspUrl": "rtsp://admin:tajne-haslo-kamery@127.0.0.9:554/ch1", "resolution": "1920×1080"},
     )  # fmt: skip
-    assert set(camera) == {
-        "id", "name", "location", "status", "signalQuality", "source", "channel",
-        "streamName", "resolution", "recording", "lastSeenAt",
-    }  # fmt: skip
     assert camera["status"] == "offline" and camera["signalQuality"] is None and camera["lastSeenAt"] is None
 
-    # Adres RTSP nie opuszcza serwera żadnym punktem API.
-    for path in ("/cameras", "/devices"):
-        assert "rtsp://" not in client.get(f"{API}{path}", headers=admin).text
+    # Lista kamer zachowuje pola, na których opiera się panel, i nie ujawnia źródła.
+    listed = client.get(f"{API}/cameras", headers=admin).json()[0]
+    assert {
+        "id", "name", "location", "status", "signalQuality", "source", "channel",
+        "streamName", "resolution", "recording", "lastSeenAt", "enabled", "streamState",
+    } <= set(listed)  # fmt: skip
+    assert not {"host", "rtspPath", "rtspPort", "username", "password", "hasPassword"} & set(listed)
+
+    # Hasło i adres RTSP nie opuszczają serwera żadnym punktem API.
+    for path in ("/cameras", "/devices", "/diagnostics", f"/cameras/{camera['id']}/config"):
+        text = client.get(f"{API}{path}", headers=admin).text
+        assert "tajne-haslo-kamery" not in text and "rtsp://" not in text, path
     with client.app.state.session_factory() as session:
-        stored = session.scalars(select(models.Camera)).one().stream_url_encrypted
-    assert stored and "rtsp://" not in stored
+        stored = session.scalars(select(models.Camera)).one().password_encrypted
+    assert stored and "tajne-haslo-kamery" not in stored
 
     duplicate = client.post(f"{API}/cameras", json={"name": "Inna", "streamName": "bcs_ch1"}, headers=admin)
     assert duplicate.status_code == 409

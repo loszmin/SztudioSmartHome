@@ -100,6 +100,7 @@ def test_serialization_uses_camel_case_and_drops_only_optional_nulls():
     assert data == {
         "id": "c1", "name": "Kamera", "location": "", "status": "offline", "signalQuality": None,
         "source": "rtsp", "streamName": "cam1", "recording": False, "lastSeenAt": None,
+        "enabled": True, "streamState": "not_configured",
     }  # fmt: skip
 
 

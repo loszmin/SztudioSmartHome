@@ -12,7 +12,11 @@ from app.api import api_router
 from app.auth import LoginThrottle
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory
+from app.integrations.go2rtc import Go2rtcClient
+from app.integrations.netguard import AddressPolicy
+from app.integrations.onvif.discovery import WS_DISCOVERY_PORT
 from app.logging_filters import install_token_redaction
+from app.monitor import DeviceMonitor
 from app.realtime import RealtimeHub
 from app.security import SecretBox, TokenSigner, hash_password
 from app.services.alarms import get_alarm_system
@@ -50,7 +54,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bootstrap(app, settings)
+        app.state.monitor.start()
         yield
+        await app.state.monitor.stop()
         app.state.engine.dispose()
 
     app = FastAPI(
@@ -73,6 +79,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.hub = RealtimeHub()
     app.state.login_throttle = LoginThrottle(settings.login_max_attempts, settings.login_lockout_seconds)
     app.state.started_monotonic = time.monotonic()
+    app.state.ws_discovery_port = WS_DISCOVERY_PORT
+
+    go2rtc = None
+    if settings.go2rtc_url:
+        go2rtc = Go2rtcClient(
+            settings.go2rtc_url,
+            settings.go2rtc_username,
+            settings.go2rtc_password.get_secret_value() if settings.go2rtc_password else None,
+        )
+    app.state.monitor = DeviceMonitor(
+        settings=settings,
+        session_factory=app.state.session_factory,
+        hub=app.state.hub,
+        box=app.state.secret_box,
+        policy=AddressPolicy.from_strings(settings.allowed_device_networks, settings.denied_device_networks),
+        go2rtc=go2rtc,
+    )
 
     if settings.cors_origin_list:
         app.add_middleware(
