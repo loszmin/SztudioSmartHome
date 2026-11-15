@@ -72,7 +72,7 @@ export function useCameraStream(camera: Camera) {
 
   const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
 
-  const state: StreamState = mode === 'demo' ? 'demo' : camera.status === 'offline' ? 'offline' : phase;
+  const state: StreamState = camera.status === 'offline' ? 'offline' : mode === 'demo' ? 'demo' : phase;
   return { state, error, videoRef, reconnect, active };
 }
 

@@ -38,8 +38,7 @@ describe('kafel kamery', () => {
     expect(screen.getByRole('button', { name: /Zapisz migawkę/ })).toBeDisabled();
   });
 
-  it('pokazuje stan offline kamery', () => {
-    useSettingsStore.setState({ mode: 'live' });
+  it('pokazuje stan offline kamery (również w trybie demo)', () => {
     render(<CameraTile camera={offline} />);
     expect(screen.getByRole('article')).toHaveAttribute('data-state', 'offline');
     expect(screen.getByText('Kamera offline')).toBeInTheDocument();
