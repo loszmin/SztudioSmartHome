@@ -1,0 +1,3 @@
+# Nazwy plików kopii są tworzone przez skrypty według ścisłego wzorca – ls | grep jest tu bezpieczne.
+disable=SC2010,SC2012
+source-path=SCRIPTDIR

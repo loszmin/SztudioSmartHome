@@ -1,9 +1,19 @@
 # Sztudio Smart Home – PostgreSQL, Sztudio Core, go2rtc i panel WWW (HTTPS).
 # Przed pierwszym uruchomieniem przygotuj plik .env:  ./scripts/init-env.sh
+# Kopie zapasowe, aktualizacja i wycofanie: docs/kopie-zapasowe.md, docs/aktualizacja-i-wycofanie.md
+
+# Dzienniki kontenerów z rotacją – bez limitu potrafią zapełnić dysk systemowy NAS-a.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: ${SZTUDIO_LOG_MAX_SIZE:-10m}
+    max-file: "${SZTUDIO_LOG_MAX_FILES:-5}"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: sztudio
       POSTGRES_USER: sztudio
@@ -25,6 +35,8 @@ services:
     user: "0:0"
     restart: "no"
     network_mode: none
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "app.cli", "ensure-certs"]
     environment:
       SZTUDIO_TLS_DIR: /certs
@@ -38,6 +50,8 @@ services:
     build: ./core
     image: sztudio-core:local
     restart: unless-stopped
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       db:
         condition: service_healthy
@@ -61,6 +75,15 @@ services:
   go2rtc:
     image: alexxit/go2rtc:1.9.15
     restart: unless-stopped
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    # Zapytanie z wnętrza kontenera (localhost) – port API nie jest publikowany.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:1984/api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       SZTUDIO_GO2RTC_PASSWORD: ${SZTUDIO_GO2RTC_PASSWORD}
       SZTUDIO_LAN_IP: ${SZTUDIO_LAN_IP}
@@ -82,7 +105,17 @@ services:
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+    image: sztudio-web:local
     restart: unless-stopped
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    # Port kontrolny nasłuchuje wyłącznie na 127.0.0.1 wewnątrz kontenera (nie jest publikowany).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       certs:
         condition: service_completed_successfully
@@ -95,6 +128,41 @@ services:
     ports:
       - "${SZTUDIO_HTTPS_PORT:-443}:443"
       - "${SZTUDIO_HTTP_PORT:-80}:80"
+    networks: [internal]
+
+  # Automatyczne kopie bazy (opcjonalne): COMPOSE_PROFILES=backup w .env albo
+  #   docker compose --profile backup up -d backup
+  # Kopie trafiają do SZTUDIO_BACKUP_DIR – zob. docs/kopie-zapasowe.md.
+  backup:
+    image: postgres:16-alpine
+    profiles: [backup]
+    restart: unless-stopped
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      db:
+        condition: service_healthy
+      core:
+        condition: service_healthy
+    # Po migracjach: Core jest zdrowy dopiero po „alembic upgrade head”.
+    entrypoint: ["/bin/sh", "/opt/sztudio/backup-loop.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: sztudio
+      PGDATABASE: sztudio
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_INTERVAL_HOURS: ${SZTUDIO_BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP: ${SZTUDIO_BACKUP_KEEP:-14}
+    volumes:
+      - ./docker/backup/backup-loop.sh:/opt/sztudio/backup-loop.sh:ro
+      - ${SZTUDIO_BACKUP_DIR:-./backups}:/backups
+    healthcheck:
+      # Zdrowa = ostatnia udana kopia nie starsza niż dwa odstępy.
+      test: ["CMD", "/bin/sh", "/opt/sztudio/backup-loop.sh", "--check"]
+      interval: 10m
+      timeout: 10s
+      retries: 1
+      start_period: 10m
     networks: [internal]
 
 networks:

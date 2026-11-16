@@ -41,6 +41,7 @@ Compose uruchamia:
 | `core` | Sztudio Core (migracje stosowane przy starcie) | nie – tylko przez `web` |
 | `go2rtc` | Strumienie wideo: RTSP → WebRTC | tylko media WebRTC (port 8555) |
 | `web` | nginx: panel, `/api`, `/ws` przez HTTPS | 443 (HTTPS), 80 (przekierowanie, certyfikat CA) |
+| `backup` | Opcjonalnie (profil `backup`): automatyczne zrzuty bazy | – |
 
 Następnie:
 
@@ -57,10 +58,26 @@ Następnie:
 | [docs/pierwsza-kamera.md](docs/pierwsza-kamera.md) | Dodanie kamery (ONVIF, RTSP, przez rejestrator), kody błędów |
 | [docs/bcs.md](docs/bcs.md) | Stan integracji BCS i informacje potrzebne do jej dokończenia |
 | [docs/weryfikacja.md](docs/weryfikacja.md) | Co i jak zostało sprawdzone; procedura testu ze sprzętem |
+| [docs/kopie-zapasowe.md](docs/kopie-zapasowe.md) | Kopie zapasowe (ręczne i automatyczne), weryfikacja, odtwarzanie |
+| [docs/aktualizacja-i-wycofanie.md](docs/aktualizacja-i-wycofanie.md) | Aktualizacja z kopią i wycofanie wersji |
+| [docs/SZTUDIO_SMART_HOME_2.0_PLAN.md](docs/SZTUDIO_SMART_HOME_2.0_PLAN.md) | Audyt i plan modernizacji 2.0 |
+| [docs/SZTUDIO_SMART_HOME_2.0_CHANGELOG.md](docs/SZTUDIO_SMART_HOME_2.0_CHANGELOG.md) | Dziennik zmian 2.0 z wynikami testów |
 | [core/README.md](core/README.md) | Backend: konfiguracja, kontrakt API, bezpieczeństwo, testy |
 | [android/README.md](android/README.md) | Aplikacja Android: budowanie APK, instalacja, połączenie z Core, bezpieczeństwo |
 | [docs/ANDROID_API_MAPPING.md](docs/ANDROID_API_MAPPING.md) | Ekrany Androida ↔ endpointy REST, WebSocket i sygnalizacja WebRTC |
 | [docs/ANDROID_TEST_REPORT.md](docs/ANDROID_TEST_REPORT.md) | Raport testów aplikacji Android i zakres niezweryfikowany |
+
+## Utrzymanie serwera
+
+| Polecenie | Działanie |
+| --- | --- |
+| `scripts/backup.sh` | Pełna kopia: baza, `.env`, certyfikaty – [opis](docs/kopie-zapasowe.md) |
+| `scripts/verify-backup.sh` | Próba odtworzenia kopii w tymczasowym kontenerze (bez wpływu na bazę) |
+| `scripts/restore.sh KOPIA` | Odtworzenie bazy z zachowaniem obecnej pod inną nazwą |
+| `scripts/update.sh WERSJA` | Aktualizacja z kopią i instrukcją wycofania – [opis](docs/aktualizacja-i-wycofanie.md) |
+| `scripts/diagnostics.sh` | Raport stanu serwera bez sekretów |
+
+Testy konfiguracji i skryptów: `core/.venv/bin/pytest tests/infra`.
 
 ## Panel WWW – praca deweloperska
 
@@ -141,6 +158,12 @@ HTTPS z zaufaniem do lokalnego CA (Network Security Config), dashboard, kamery z
 pełny ekran, automatyczne wznawianie), alarmy z potwierdzaniem, czujniki, historia z filtrami, diagnostyka,
 ustawienia, praca offline z oznaczaniem nieaktualnych danych. 54 testy JVM + 7 testów z prawdziwym Core.
 **Nie była uruchomiona na telefonie** – zob. [raport testów](docs/ANDROID_TEST_REPORT.md).
+
+### Wersja 2.0 – w toku
+
+Gałąź `feature/sztudio-smart-home-2.0`, plan: [docs/SZTUDIO_SMART_HOME_2.0_PLAN.md](docs/SZTUDIO_SMART_HOME_2.0_PLAN.md).
+Etap 0 (kopie zapasowe, odtwarzanie, aktualizacja z wycofaniem, diagnostyka, rotacja logów, healthchecki,
+poprawka 502 po restarcie Core) – sprawdzony na stosie Docker, **nie na NAS-ie**.
 
 ### Czego jeszcze nie ma
 

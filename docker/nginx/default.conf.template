@@ -8,6 +8,19 @@ map $http_upgrade $connection_upgrade {
 # Dziennik bez parametrów adresu ($uri zamiast $request) – token WebSocket (?token=) nie trafia do logów.
 log_format sztudio '$remote_addr [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
 
+# Kontrola stanu dla healthchecka Dockera – tylko pętla zwrotna wewnątrz kontenera.
+server {
+    listen 127.0.0.1:8081;
+    access_log off;
+    location = /healthz {
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+    location / {
+        return 404;
+    }
+}
+
 server {
     listen 80;
     server_name _;
@@ -44,8 +57,15 @@ server {
 
     include /etc/nginx/snippets/security-headers.conf;
 
+    # Nazwa „core” rozwiązywana przy każdym żądaniu (DNS Dockera, ważność 10 s) – po restarcie
+    # kontenera Core z nowym adresem IP nginx nie zwraca 502. Zmienna w proxy_pass wymusza dynamiczne
+    # rozwiązywanie; bez części URI adres żądania jest przekazywany bez zmian.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    resolver_timeout 5s;
+    set $sztudio_core http://core:8000;
+
     location /api/ {
-        proxy_pass http://core:8000;
+        proxy_pass $sztudio_core;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -54,7 +74,7 @@ server {
     }
 
     location /ws/ {
-        proxy_pass http://core:8000;
+        proxy_pass $sztudio_core;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
