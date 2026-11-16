@@ -115,9 +115,9 @@ fun LoadingBlock(modifier: Modifier = Modifier, label: String = "Ładowanie dany
 fun MessageBlock(
     icon: ImageVector,
     title: String,
+    modifier: Modifier = Modifier,
     description: String? = null,
     tone: Tone = Tone.Neutral,
-    modifier: Modifier = Modifier,
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(
@@ -140,7 +140,7 @@ fun MessageBlock(
 
 @Composable
 fun EmptyBlock(title: String, description: String? = null, icon: ImageVector = Icons.Outlined.Inbox) =
-    MessageBlock(icon, title, description)
+    MessageBlock(icon, title, description = description)
 
 /** Błąd pobierania danych; dla niezaufanego certyfikatu proponuje instrukcję instalacji CA. */
 @Composable

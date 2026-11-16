@@ -8,6 +8,7 @@ sieć lokalna i historia zdarzeń. Działa w sieci domowej, bez dostępu do inte
 Repozytorium zawiera:
 
 - **Panel WWW** (ten katalog) – React + TypeScript, instalowalne PWA dla Windows i telefonów.
+- **Aplikacja Android** ([`android/`](android/README.md)) – natywna (Kotlin, Jetpack Compose), klient tego samego Core.
 - **Sztudio Core** ([`core/`](core/README.md)) – backend FastAPI + PostgreSQL: REST API, WebSocket,
   logowanie, integracje RTSP / ONVIF / go2rtc / BCS, monitor urządzeń.
 - **Docker Compose** – PostgreSQL, Core, go2rtc i nginx z HTTPS.
@@ -57,6 +58,9 @@ Następnie:
 | [docs/bcs.md](docs/bcs.md) | Stan integracji BCS i informacje potrzebne do jej dokończenia |
 | [docs/weryfikacja.md](docs/weryfikacja.md) | Co i jak zostało sprawdzone; procedura testu ze sprzętem |
 | [core/README.md](core/README.md) | Backend: konfiguracja, kontrakt API, bezpieczeństwo, testy |
+| [android/README.md](android/README.md) | Aplikacja Android: budowanie APK, instalacja, połączenie z Core, bezpieczeństwo |
+| [docs/ANDROID_API_MAPPING.md](docs/ANDROID_API_MAPPING.md) | Ekrany Androida ↔ endpointy REST, WebSocket i sygnalizacja WebRTC |
+| [docs/ANDROID_TEST_REPORT.md](docs/ANDROID_TEST_REPORT.md) | Raport testów aplikacji Android i zakres niezweryfikowany |
 
 ## Panel WWW – praca deweloperska
 
@@ -130,12 +134,22 @@ alarmów, tryb uzbrojenia, reguły alarmów, migracje Alembic, Docker Compose.
 - **Panel**: zarządzanie kamerami i rejestratorami, wyszukiwanie ONVIF, rzeczywisty podgląd WebRTC
   z automatycznym wznawianiem, informacja o źródle obrazu i błędach.
 
+### Etap 4 – aplikacja Android
+
+Natywny klient Core (Kotlin, Compose, Material 3, MVVM): logowanie z sesją szyfrowaną w Android Keystore,
+HTTPS z zaufaniem do lokalnego CA (Network Security Config), dashboard, kamery z natywnym WebRTC (układy 1/4/6,
+pełny ekran, automatyczne wznawianie), alarmy z potwierdzaniem, czujniki, historia z filtrami, diagnostyka,
+ustawienia, praca offline z oznaczaniem nieaktualnych danych. 54 testy JVM + 7 testów z prawdziwym Core.
+**Nie była uruchomiona na telefonie** – zob. [raport testów](docs/ANDROID_TEST_REPORT.md).
+
 ### Czego jeszcze nie ma
 
 - **Testów z rzeczywistym sprzętem** – kamera IP, rejestrator BCS, WS-Discovery multicast w sieci domowej.
+- **Testu aplikacji Android na telefonie** – w tym natywnego podglądu WebRTC.
 - **Funkcji rejestratora wymagających API producenta**: zdarzenia, nagrania, stan dysków, PTZ – zob. [docs/bcs.md](docs/bcs.md).
 - **Kamer H.265 (HEVC)** – przeglądarki nie odtwarzają ich przez WebRTC; potrzebny strumień H.264
   albo transkodowanie (go2rtc + ffmpeg, niezaimplementowane).
 - **MQTT** (czujniki), **wykrywania urządzeń sieciowych i pomiaru opóźnień** (lista sieci jest ręczna).
 - **Zarządzania użytkownikami w panelu** – konto administratora z CLI, tokeny API przez API.
-- **Powiadomień push w tle**, **aplikacji Android (Kotlin)** – mobilnie działa responsywne PWA.
+- **Powiadomień push w tle** – Core ich nie wysyła; aplikacja Android i panel pokazują alerty, gdy są otwarte.
+- **Dźwięku z kamer w aplikacji Android**, **odświeżania tokenów** (Core ich nie wydaje).

@@ -62,8 +62,9 @@ zaznacz „Zaufaj temu CA przy identyfikacji witryn”.
 Android wyświetla stałe powiadomienie „Sieć może być monitorowana” – to standardowy komunikat przy
 każdym certyfikacie dodanym przez użytkownika.
 
-Chrome na Androidzie ufa certyfikatom dodanym przez użytkownika. Przyszła natywna aplikacja Android
-(Kotlin) będzie wymagała konfiguracji `network_security_config` uwzględniającej ten urząd.
+Chrome na Androidzie ufa certyfikatom dodanym przez użytkownika. Natywna aplikacja Sztudio Smart Home
+korzysta z tego samego zainstalowanego certyfikatu – dopuszcza go jawnie w `network_security_config.xml`
+(CA systemowe + CA użytkownika, bez wyłączania weryfikacji); zob. [android/README.md](../android/README.md).
 
 ## Własny certyfikat zamiast lokalnego urzędu
 

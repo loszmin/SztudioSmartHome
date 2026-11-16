@@ -113,8 +113,11 @@ class SessionManager(
             .onFailure { if (it is AppError.SessionExpired) logout(AppError.SessionExpired) }
     }
 
-    override suspend fun logout(reason: AppError?) {
-        if (current == null && _state.value is SessionState.LoggedOut) return
+    private val logoutMutex = Mutex()
+
+    /** Idempotentne: równoczesne odrzucenia tokenu (REST i WebSocket) kończą sesję tylko raz. */
+    override suspend fun logout(reason: AppError?) = logoutMutex.withLock {
+        if (current == null && _state.value is SessionState.LoggedOut) return@withLock
         current = null
         store.clear()
         onLoggedOut()

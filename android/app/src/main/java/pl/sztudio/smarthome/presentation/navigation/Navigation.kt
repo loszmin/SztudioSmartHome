@@ -144,7 +144,7 @@ fun MainNavigation(nav: NavHostController = rememberNavController()) {
                             onClick = { nav.navigateToTab(tab.route) },
                             icon = {
                                 if (tab.route == Routes.ALARMS && activeAlarms > 0) {
-                                    BadgedBox(badge = { Badge(containerColor = Sz.Danger) { Text("$activeAlarms") } }) { Icon(tab.icon, contentDescription = null) }
+                                    BadgedBox(badge = { Badge(containerColor = Sz.Danger, modifier = Modifier.testTag("alarm-badge")) { Text("$activeAlarms") } }) { Icon(tab.icon, contentDescription = null) }
                                 } else {
                                     Icon(tab.icon, contentDescription = null)
                                 }

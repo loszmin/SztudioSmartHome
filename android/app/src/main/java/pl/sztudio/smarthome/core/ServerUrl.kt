@@ -17,7 +17,7 @@ value class ServerUrl private constructor(val value: String) {
          * innych schematów, ścieżek z parametrami i adresów bez hosta.
          */
         fun parse(input: String): Result<ServerUrl> {
-            var text = input.trim().trimEnd('/')
+            var text = input.trim()
             if (text.isEmpty()) return Result.failure(IllegalArgumentException("Podaj adres serwera Sztudio Core."))
             if (text.startsWith("http://", ignoreCase = true)) return Result.failure(AppError.CleartextNotAllowed)
             if (!text.contains("://")) text = "https://$text"

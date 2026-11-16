@@ -45,22 +45,24 @@ class CamerasViewModel(
     private val selectedId = MutableStateFlow(saved.get<String>(KEY_SELECTED))
     private val refreshing = MutableStateFlow(false)
 
-    init {
-        if (saved.get<Int>(KEY_LAYOUT) == null) {
-            viewModelScope.launch { setLayout(settings.settings.first().defaultCameraLayout) }
-        }
-    }
-
     val state: StateFlow<CamerasUiState> = combine(
         repository.cameras, repository.status, layout, page, combine(selectedId, refreshing) { a, b -> a to b },
     ) { cameras, status, layout, page, (selected, busy) ->
         CamerasUiState(cameras, layout, page, selected, status.data?.go2rtc, busy)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CamerasUiState())
 
+    // Po inicjalizacji `state` – blok init korzysta z setLayout, który go odczytuje.
+    init {
+        if (saved.get<Int>(KEY_LAYOUT) == null) {
+            viewModelScope.launch { setLayout(settings.settings.first().defaultCameraLayout) }
+        }
+    }
+
     fun setLayout(value: Int) {
         if (value !in CAMERA_LAYOUTS) return
-        val list = state.value.cameras.data.orEmpty()
-        val index = list.indexOfFirst { it.id == state.value.selected?.id }.coerceAtLeast(0)
+        val list = repository.cameras.value.data.orEmpty()
+        val selected = selectedId.value ?: list.drop(page.value * layout.value).firstOrNull()?.id
+        val index = list.indexOfFirst { it.id == selected }.coerceAtLeast(0)
         layout.value = value
         saved[KEY_LAYOUT] = value
         setPage(index / value)
@@ -74,7 +76,7 @@ class CamerasViewModel(
     fun select(id: String) {
         selectedId.value = id
         saved[KEY_SELECTED] = id
-        val index = state.value.cameras.data.orEmpty().indexOfFirst { it.id == id }
+        val index = repository.cameras.value.data.orEmpty().indexOfFirst { it.id == id }
         if (index >= 0) setPage(index / layout.value)
     }
 
