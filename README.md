@@ -2,35 +2,61 @@
 
 **Your home. Your security.**
 
-Panel WWW (PWA) prywatnego systemu monitoringu i bezpieczeństwa domu: kamery IP, rejestrator BCS,
-czujniki, alarmy, sieć lokalna i historia zdarzeń. Działa lokalnie, bez dostępu do internetu
-(czcionki i ikony są wbudowane w aplikację).
+Prywatny system monitoringu i bezpieczeństwa domu: kamery IP, rejestrator BCS, czujniki, alarmy,
+sieć lokalna i historia zdarzeń. Działa w sieci domowej, bez dostępu do internetu.
 
-Repozytorium zawiera dwie części:
+Repozytorium zawiera:
 
-- **Panel WWW** (ten katalog) – React + TypeScript, instalowalne PWA dla desktopu / Windows i telefonów.
-- **Sztudio Core** ([`core/`](core/README.md)) – backend FastAPI + PostgreSQL: REST API, WebSocket, logowanie.
+- **Panel WWW** (ten katalog) – React + TypeScript, instalowalne PWA dla Windows i telefonów.
+- **Sztudio Core** ([`core/`](core/README.md)) – backend FastAPI + PostgreSQL: REST API, WebSocket,
+  logowanie, integracje RTSP / ONVIF / go2rtc / BCS, monitor urządzeń.
+- **Docker Compose** – PostgreSQL, Core, go2rtc i nginx z HTTPS.
 
-Integracje sprzętowe (BCS, RTSP, ONVIF, go2rtc, MQTT) **nie są jeszcze zaimplementowane** – zob. „Stan realizacji”.
+> **Stan sprzętowy:** cała ścieżka obrazu (RTSP → go2rtc → WebRTC → przeglądarka) działa i została
+> sprawdzona z **testowym źródłem RTSP**. Żaden test z rzeczywistą kamerą ani rejestratorem BCS nie
+> został jeszcze wykonany – szczegóły w [docs/weryfikacja.md](docs/weryfikacja.md).
 
-## Szybki start (Docker Compose)
+## Szybki start
+
+Wymagany Docker z Compose. Na serwerze w sieci domowej:
 
 ```bash
-cp .env.example .env
+./scripts/init-env.sh
 ```
 
-Uzupełnij w `.env`: `POSTGRES_PASSWORD`, `SZTUDIO_SECRET_KEY` (min. 32 znaki) i `SZTUDIO_ADMIN_PASSWORD`, a następnie:
+Skrypt tworzy `.env` z losowymi hasłami, wykrywa adres IP serwera i wypisuje hasło administratora.
+Jeżeli adres jest niewłaściwy (np. serwer ma kilka kart sieciowych), podaj go: `./scripts/init-env.sh 192.168.1.10`.
 
 ```bash
 docker compose up -d --build
 ```
 
-Panel: `http://<adres-hosta>:8080` → **Ustawienia → Użytkownicy i bezpieczeństwo → Zaloguj**
-(login z `SZTUDIO_ADMIN_USERNAME`). Compose uruchamia PostgreSQL, Core (migracje stosowane przy starcie)
-i nginx z panelem, który pośredniczy w ruchu `/api` i `/ws`. Baza i Core nie są wystawiane na hoście.
+Compose uruchamia:
 
-Świeża instalacja jest pusta – kamery, rejestratory i czujniki dodaje się przez API administratora
-(zob. [`core/README.md`](core/README.md)), dopóki nie powstaną integracje sprzętowe.
+| Usługa | Rola | Dostępna z sieci LAN |
+| --- | --- | --- |
+| `certs` | Jednorazowo: lokalny urząd certyfikacji i certyfikat HTTPS | – |
+| `db` | PostgreSQL 16 | nie |
+| `core` | Sztudio Core (migracje stosowane przy starcie) | nie – tylko przez `web` |
+| `go2rtc` | Strumienie wideo: RTSP → WebRTC | tylko media WebRTC (port 8555) |
+| `web` | nginx: panel, `/api`, `/ws` przez HTTPS | 443 (HTTPS), 80 (przekierowanie, certyfikat CA) |
+
+Następnie:
+
+1. Zainstaluj certyfikat urzędu na komputerze i telefonie – [docs/https-i-certyfikaty.md](docs/https-i-certyfikaty.md).
+2. Otwórz `https://ADRES-SERWERA` → **Ustawienia → Użytkownicy i bezpieczeństwo → Zaloguj**.
+3. Podłącz pierwszą kamerę – [docs/pierwsza-kamera.md](docs/pierwsza-kamera.md).
+4. Zainstaluj aplikację (Edge / Chrome → ikona instalacji w pasku adresu).
+
+## Dokumentacja
+
+| Dokument | Zawartość |
+| --- | --- |
+| [docs/https-i-certyfikaty.md](docs/https-i-certyfikaty.md) | HTTPS, instalacja certyfikatu na Windows i Androidzie, własny certyfikat, porty |
+| [docs/pierwsza-kamera.md](docs/pierwsza-kamera.md) | Dodanie kamery (ONVIF, RTSP, przez rejestrator), kody błędów |
+| [docs/bcs.md](docs/bcs.md) | Stan integracji BCS i informacje potrzebne do jej dokończenia |
+| [docs/weryfikacja.md](docs/weryfikacja.md) | Co i jak zostało sprawdzone; procedura testu ze sprzętem |
+| [core/README.md](core/README.md) | Backend: konfiguracja, kontrakt API, bezpieczeństwo, testy |
 
 ## Panel WWW – praca deweloperska
 
@@ -44,102 +70,72 @@ npm run preview    # podgląd wersji produkcyjnej (z Service Workerem)
 npm test           # testy (Vitest + Testing Library)
 ```
 
-## Połączenie z Sztudio Core
+Serwer deweloperski działa w trybie demonstracyjnym albo łączy się z Core wskazanym w
+**Ustawienia → Połączenie z Sztudio Core** (Core musi wtedy mieć `SZTUDIO_CORS_ORIGINS` z adresem panelu).
+Wartości domyślne przy budowaniu: `VITE_CORE_URL`, `VITE_DEFAULT_MODE` (`demo` | `live`).
 
-Adres serwera nie jest zapisany w kodzie. Ustawia się go w aplikacji:
-**Ustawienia → Połączenie z Sztudio Core** (źródło danych, adres, test połączenia), a loguje w sekcji
-**Użytkownicy i bezpieczeństwo** (login i hasło → token dostępu; alternatywnie ręcznie wklejony token API).
-Puste pole adresu oznacza „ten sam adres, z którego otwarto panel” – wygodne, gdy Core sam serwuje `dist/`.
+### Obraz z kamer
 
-Wartości domyślne przy pierwszym uruchomieniu można podać przy budowaniu (`.env`, zob. `.env.example`):
-`VITE_CORE_URL`, `VITE_GO2RTC_URL`, `VITE_DEFAULT_MODE` (`demo` | `live`).
+Panel nie łączy się z go2rtc ani z kamerami i nie zna adresów RTSP. Kafel kamery wysyła ofertę WebRTC do
+Core (`POST /api/v1/cameras/{id}/webrtc`, wymaga zalogowania), Core wymienia ją z go2rtc w sieci wewnętrznej,
+a obraz płynie szyfrowanym połączeniem WebRTC. Po utracie połączenia kafel wznawia je sam
+(odstępy 2, 5, 10, 20, 30 s). W trybie demonstracyjnym obraz **nie jest symulowany**.
 
-### Kontrakt API (v1)
-
-JSON w camelCase, daty ISO 8601. Typy: [`src/types/api.ts`](src/types/api.ts), ścieżki: [`src/services/api/endpoints.ts`](src/services/api/endpoints.ts).
-
-| Metoda | Ścieżka | Odpowiedź |
-| --- | --- | --- |
-| GET | `/api/v1/system/status` | `SystemStatus` (stan Core, zasoby, usługi, tryb uzbrojenia) |
-| GET | `/api/v1/devices` | `Device[]` |
-| GET | `/api/v1/cameras` | `Camera[]` |
-| GET | `/api/v1/alarms` | `Alarm[]` |
-| GET | `/api/v1/sensors` | `Sensor[]` |
-| GET | `/api/v1/events?category=&from=&to=&limit=` | `SystemEvent[]` |
-| GET | `/api/v1/network/devices` | `NetworkDevice[]` |
-| POST | `/api/v1/alarms/{id}/acknowledge` | `Alarm` |
-| PUT | `/api/v1/alarms/arming` `{ "mode": "disarmed" \| "armed_home" \| "armed_away" }` | `AlarmSystemState` |
-
-Wszystkie punkty wymagają nagłówka `Authorization: Bearer <token>`; token wydaje `POST /api/v1/auth/login`.
-Pełny kontrakt (w tym API administracyjne) opisuje [`core/README.md`](core/README.md).
-
-WebSocket: `/ws/v1/events`, `/ws/v1/system`, `/ws/v1/cameras`, `/ws/v1/alarms`. Panel oczekuje komunikatów
-JSON z polem `type`; każdy komunikat powoduje odświeżenie powiązanych danych przez REST. Połączenia są
-wznawiane automatycznie. Token (jeśli ustawiony) jest przekazywany jako `?token=`.
-
-### Obraz z kamer (go2rtc)
-
-Kafel kamery zestawia sesję WebRTC: `POST {go2rtc}/api/webrtc?src={camera.streamName}` (oferta SDP → odpowiedź SDP).
-Adres go2rtc: **Ustawienia → Konfiguracja kamer**; domyślnie `{adres Core}/go2rtc`.
-W trybie demonstracyjnym obraz **nie jest symulowany** – kafle pokazują czytelny stan zastępczy.
-
-## Architektura
+## Architektura panelu
 
 ```
 src/
   app/          router, dostawcy, granica błędów, rejestracja PWA
-  layouts/      układ aplikacji: panel boczny, pasek statusu, dolna nawigacja, powiadomienia
+  layouts/      układ: panel boczny, pasek statusu, dolna nawigacja, powiadomienia
   pages/        ekrany (po jednym na trasę)
-  modules/      komponenty i logika domenowa: dashboard, cameras, alarms, sensors, network, events, settings
-  components/   komponenty wielokrotnego użytku (karty, statusy, przyciski, pola, stany ładowania/błędu/pustki)
+  modules/      logika domenowa: dashboard, cameras, recorders, alarms, sensors, network, events, settings
+  components/   komponenty wielokrotnego użytku (karty, okna, statusy, pola, stany ładowania/błędu/pustki)
   services/
     api/        klient HTTP, ścieżki, interfejs SztudioCoreApi
-    mock/       dane demonstracyjne (ta sama implementacja interfejsu, oddzielona od usług rzeczywistych)
+    mock/       dane demonstracyjne (oddzielone od usług rzeczywistych)
     realtime/   klient WebSocket z ponawianiem
-    go2rtc/     klient WebRTC
-  hooks/        zapytania TanStack Query, stan połączenia, zegar, pełny ekran, powiadomienia
+    go2rtc/     sesja WebRTC sygnalizowana przez Core
+  hooks/        zapytania i akcje (TanStack Query), stan połączenia, zegar, pełny ekran, powiadomienia
   stores/       ustawienia (localStorage), komunikaty, stan WebSocket, instalacja PWA
   types/        typy danych API
-  styles/       motyw (kolory Sztudio) i style bazowe
 ```
 
-Ekrany: Start (`/`), Kamery (`/kamery`), Alarmy (`/alarmy`), Czujniki (`/czujniki`), Sieć (`/siec`),
-Historia (`/historia`), Ustawienia (`/ustawienia`).
-
-## PWA
-
-`npm run build` generuje manifest i Service Workera (precache całej aplikacji). Dane z `/api`, `/ws`
-i `/go2rtc` nigdy nie są serwowane z cache – przy braku serwera panel pokazuje stan „Brak połączenia”
-zamiast nieaktualnych danych.
-
-**Ważne:** przeglądarki rejestrują Service Workera i pozwalają instalować PWA tylko w bezpiecznym
-kontekście – `https://` lub `http://localhost`. Panel otwarty jako `http://192.168.x.x` działa normalnie,
-ale bez instalacji i pracy offline. Docelowo Core powinien udostępniać panel przez HTTPS (np. certyfikat lokalny).
+Ekrany: Start, Kamery, Alarmy, Czujniki, Rejestratory, Sieć, Historia, Diagnostyka, Ustawienia.
 
 ## Stan realizacji
 
-### Etap 1 – panel WWW (1.0.0)
+### Etap 1 – panel WWW
 
 Dashboard, monitoring kamer (układy 1/4/6/9, pełny ekran), alarmy, czujniki, sieć, historia zdarzeń,
-ustawienia, PWA, układ mobilny, tryb demonstracyjny. 42 testy (Vitest).
+ustawienia, PWA, układ mobilny, tryb demonstracyjny.
 
-### Etap 2 – Sztudio Core (1.0.0)
+### Etap 2 – Sztudio Core
 
-REST API zgodne z typami panelu, WebSocket (4 kanały), logowanie administratora, role, tokeny API,
-potwierdzanie alarmów, tryb uzbrojenia, reguły alarmów dla odczytów czujników, migracje Alembic,
-Docker Compose. 48 testów (pytest, PostgreSQL). Szczegóły: [`core/README.md`](core/README.md).
+REST API zgodne z typami panelu, WebSocket, logowanie administratora, role, tokeny API, potwierdzanie
+alarmów, tryb uzbrojenia, reguły alarmów, migracje Alembic, Docker Compose.
+
+### Etap 3 – integracje sprzętowe
+
+- **HTTPS**: lokalny urząd certyfikacji, nginx z TLS 1.2/1.3, WSS, nagłówki bezpieczeństwa, brak tokenów w logach.
+- **go2rtc** w Compose: strumienie rejestrowane przez Core (bez plików z hasłami na dysku), API niepublikowane,
+  automatyczna ponowna rejestracja po restarcie go2rtc.
+- **RTSP**: dodawanie, edycja, usuwanie kamer, test połączenia (Digest/Basic), profile strumienia,
+  szyfrowane hasła, ochrona przed SSRF, status online/offline z monitora, alarmy utraty połączenia.
+- **ONVIF**: wykrywanie (WS-Discovery: skan podsieci i multicast), producent, model, profile mediów,
+  adresy strumieni, test logowania, dodanie wykrytej kamery.
+- **BCS**: moduł `core/app/integrations/bcs/` oparty na protokołach standardowych – rejestracja, test
+  protokołów, kanały przez ONVIF lub szablon, import kanałów jako kamer. Bez API producenta – zob. [docs/bcs.md](docs/bcs.md).
+- **Diagnostyka**: ostatnia próba i udane połączenie, kod i opis błędu, czas odpowiedzi, stan strumienia,
+  stan go2rtc i monitora; ekran Diagnostyka.
+- **Panel**: zarządzanie kamerami i rejestratorami, wyszukiwanie ONVIF, rzeczywisty podgląd WebRTC
+  z automatycznym wznawianiem, informacja o źródle obrazu i błędach.
 
 ### Czego jeszcze nie ma
 
-- **Integracji sprzętowych**: BCS Point / BCS Line, RTSP, ONVIF, go2rtc, MQTT. Core ma dla nich modele
-  i punkty wejścia, ale żaden kod nie łączy się z urządzeniami – statusy kamer, rejestratorów i czujników
-  zmieniają się tylko przez API. `/system/status` raportuje te integracje jako zatrzymane.
-- **Obrazu z kamer**: wymaga go2rtc i konfiguracji strumieni. Klient WebRTC w panelu nie był uruchamiany
-  z prawdziwym go2rtc; bez niego kafel kamery pokazuje „Brak obrazu”.
-- **Wykrywania urządzeń w sieci** (skanowanie LAN, pomiar opóźnień) – lista sieci jest prowadzona ręcznie przez API.
-- **Ekranów administracyjnych w panelu**: dodawanie kamer, rejestratorów, czujników, użytkowników i tokenów
-  odbywa się przez API / CLI. Sekcje „Integracja BCS” i „Konfiguracja kamer” są tylko do odczytu.
-- **Zarządzania wieloma użytkownikami przez API** – istnieje konto administratora (CLI) i tokeny API z rolą.
-- **HTTPS** – Compose wystawia panel po HTTP; instalacja PWA wymaga HTTPS lub `localhost` (zob. „PWA”).
-- **Powiadomień w tle (push)**, **PTZ**, **odtwarzania nagrań**.
-- **Aplikacji Android (Kotlin / Jetpack Compose)** – układ mobilny działa jako responsywny panel WWW/PWA.
+- **Testów z rzeczywistym sprzętem** – kamera IP, rejestrator BCS, WS-Discovery multicast w sieci domowej.
+- **Funkcji rejestratora wymagających API producenta**: zdarzenia, nagrania, stan dysków, PTZ – zob. [docs/bcs.md](docs/bcs.md).
+- **Kamer H.265 (HEVC)** – przeglądarki nie odtwarzają ich przez WebRTC; potrzebny strumień H.264
+  albo transkodowanie (go2rtc + ffmpeg, niezaimplementowane).
+- **MQTT** (czujniki), **wykrywania urządzeń sieciowych i pomiaru opóźnień** (lista sieci jest ręczna).
+- **Zarządzania użytkownikami w panelu** – konto administratora z CLI, tokeny API przez API.
+- **Powiadomień push w tle**, **aplikacji Android (Kotlin)** – mobilnie działa responsywne PWA.

@@ -17,6 +17,17 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Biblioteki zewnętrzne w osobnym pliku – zmieniają się rzadziej niż kod panelu,
+        // więc po aktualizacji panelu przeglądarka i Service Worker pobierają mniej danych.
+        codeSplitting: {
+          groups: [{ name: 'vendor', test: /node_modules/ }],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -32,6 +32,8 @@ class CertificateReport:
     hosts: list[str]
     expires_at: datetime
     ca_fingerprint: str | None
+    #: Odcisk SHA-1 – tę wartość Windows pokazuje jako „Odcisk palca” w szczegółach certyfikatu.
+    ca_fingerprint_sha1: str | None = None
 
 
 def _name(common_name: str) -> x509.Name:
@@ -56,8 +58,8 @@ def _key_pem(key: ec.EllipticCurvePrivateKey) -> bytes:
     )
 
 
-def fingerprint(certificate: x509.Certificate) -> str:
-    digest = certificate.fingerprint(hashes.SHA256()).hex().upper()
+def fingerprint(certificate: x509.Certificate, algorithm: hashes.HashAlgorithm | None = None) -> str:
+    digest = certificate.fingerprint(algorithm or hashes.SHA256()).hex().upper()
     return ":".join(digest[index : index + 2] for index in range(0, len(digest), 2))
 
 
@@ -202,10 +204,20 @@ def ensure_certificates(
             and current.not_valid_after_utc - now > RENEW_BEFORE
         ):
             return CertificateReport(
-                "kept", certificate_hosts(current), current.not_valid_after_utc, fingerprint(ca_certificate)
+                "kept",
+                certificate_hosts(current),
+                current.not_valid_after_utc,
+                fingerprint(ca_certificate),
+                fingerprint(ca_certificate, hashes.SHA1()),  # tylko do porównania z Windows
             )
 
     certificate, key = issue_server_certificate(ca_certificate, ca_key, hosts, now)  # type: ignore[arg-type]
     _write(key_path, _key_pem(key), private=True)
     _write(cert_path, certificate.public_bytes(serialization.Encoding.PEM), private=False)
-    return CertificateReport("issued", hosts, certificate.not_valid_after_utc, fingerprint(ca_certificate))
+    return CertificateReport(
+        "issued",
+        hosts,
+        certificate.not_valid_after_utc,
+        fingerprint(ca_certificate),
+        fingerprint(ca_certificate, hashes.SHA1()),  # tylko do porównania z Windows
+    )

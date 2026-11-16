@@ -26,6 +26,7 @@ def test_issues_ca_and_server_certificate_for_hosts(tmp_path):
         "127.0.0.1",
     ]
     assert report.ca_fingerprint and len(report.ca_fingerprint.split(":")) == 32
+    assert report.ca_fingerprint_sha1 and len(report.ca_fingerprint_sha1.split(":")) == 20
 
     ca, server = load(tmp_path / CA_CERT), load(tmp_path / SERVER_CERT)
     constraints = ca.extensions.get_extension_for_class(x509.BasicConstraints).value
@@ -113,7 +114,9 @@ def test_cli_creates_certificates_without_core_configuration(tmp_path, monkeypat
     monkeypatch.delenv("SZTUDIO_SECRET_KEY", raising=False)
     main(["ensure-certs", "--dir", str(tmp_path), "--hosts", "192.168.1.10, sztudio.lan"])
     output = capsys.readouterr().out
-    assert "Wystawiono certyfikat serwera" in output and "Odcisk SHA-256" in output
+    assert (
+        "Wystawiono certyfikat serwera" in output and "Odcisk SHA-256" in output and "Odcisk SHA-1" in output
+    )
     assert (tmp_path / SERVER_CERT).exists()
 
 

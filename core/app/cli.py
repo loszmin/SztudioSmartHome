@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         if report.ca_fingerprint:
             print(f"Odcisk SHA-256 lokalnego urzędu (sztudio-ca.crt): {report.ca_fingerprint}")
+            print(f"Odcisk SHA-1 (Windows: „Odcisk palca”):            {report.ca_fingerprint_sha1}")
         return
 
     settings = get_settings()
