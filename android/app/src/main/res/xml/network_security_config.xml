@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sztudio Core działa w sieci domowej z certyfikatem wystawionym przez lokalny urząd certyfikacji (CA).
+  Od Androida 7 aplikacje domyślnie NIE ufają certyfikatom CA zainstalowanym przez użytkownika,
+  dlatego aplikacja jawnie dopuszcza:
+    - systemowe CA (certyfikaty publiczne, np. Let's Encrypt),
+    - CA zainstalowane przez użytkownika (lokalny urząd Sztudio: Ustawienia → Bezpieczeństwo → Certyfikat CA).
+  Weryfikacja łańcucha i nazwy hosta pozostaje w pełni włączona. Ruch nieszyfrowany jest zabroniony.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.kotlin/
+captures/
+*.apk
+*.aab
+*.jks
+*.keystore
+# Konfiguracja testów z prawdziwym Core (adres, hasło) – nigdy w repozytorium
+realcore.properties

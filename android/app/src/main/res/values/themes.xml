@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Sztudio" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/midnight</item>
+        <item name="android:statusBarColor">@color/midnight</item>
+        <item name="android:navigationBarColor">@color/midnight</item>
+    </style>
+
+    <!-- Ekran startowy systemu (Android 12+ i biblioteka core-splashscreen dla starszych). -->
+    <style name="Theme.Sztudio.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/midnight</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_logo_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.Sztudio</item>
+    </style>
+</resources>

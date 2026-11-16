@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sygnet Sztudio – geometryczne „S” (srebro i błękit). Obszar 108×108 z marginesem na ekran startowy i ikonę adaptacyjną. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.25"
+        android:scaleY="1.25"
+        android:translateX="24"
+        android:translateY="24">
+        <path
+            android:pathData="M38,11H16l-6,6v3l4,4h10"
+            android:strokeWidth="6"
+            android:strokeColor="#FFD4DDE8"
+            android:strokeLineJoin="miter" />
+        <path
+            android:pathData="M10,37h22l6,-6v-3l-4,-4H24"
+            android:strokeWidth="6"
+            android:strokeColor="#FF2589E8"
+            android:strokeLineJoin="miter" />
+    </group>
+</vector>
