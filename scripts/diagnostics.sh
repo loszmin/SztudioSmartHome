@@ -22,6 +22,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [[ "$LOG_LINES" =~ ^[0-9]+$ ]] || die "--logs musi być liczbą"
+resolve_compose
 
 section() { printf '\n== %s ==\n' "$*"; }
 
@@ -60,11 +61,24 @@ report() {
 
     section "Repozytorium"
     echo "katalog: $SZTUDIO_ROOT"
-    echo "commit: $(git -C "$SZTUDIO_ROOT" log -1 --format='%h %ci %s' 2> /dev/null || echo nieznany)"
-    echo "gałąź: $(git -C "$SZTUDIO_ROOT" rev-parse --abbrev-ref HEAD 2> /dev/null || echo nieznana)"
-    echo "zmienione pliki śledzone: $(git -C "$SZTUDIO_ROOT" status --short --untracked-files=no 2> /dev/null | wc -l)"
-    git -C "$SZTUDIO_ROOT" status --short --untracked-files=no 2> /dev/null | sed 's/^/  /' || true
-    echo "pliki Compose: $(cd "$SZTUDIO_ROOT" && ls docker-compose*.yml compose*.yml 2> /dev/null | tr '\n' ' ')"
+    echo "wersja: $(code_version)"
+    if [ -f "$SZTUDIO_ROOT/.sztudio-release/files.txt" ]; then
+        # Pliki kodu zmienione lokalnie względem zainstalowanego wydania (bez Gita).
+        local changed=0 p
+        while IFS= read -r p; do
+            [ -e "$SZTUDIO_ROOT/$p" ] || { echo "  brak pliku wydania: $p"; changed=$((changed + 1)); }
+        done < "$SZTUDIO_ROOT/.sztudio-release/files.txt"
+        echo "brakujące pliki wydania: $changed"
+    fi
+    if has_git; then
+        echo "git: $(git -C "$SZTUDIO_ROOT" log -1 --format='%h %ci %s' 2> /dev/null), zmienione pliki: $(git -C "$SZTUDIO_ROOT" status --short --untracked-files=no 2> /dev/null | wc -l)"
+    else
+        echo "git: niedostępny (niewymagany)"
+    fi
+    echo "pliki Compose w katalogu: $(cd "$SZTUDIO_ROOT" && ls docker-compose*.yml compose*.yml 2> /dev/null | tr '\n' ' ')"
+    echo "pliki Compose stosu: $(compose_files_description)"
+    echo "dane bazy (kontener): $(db_mount_actual)"
+    echo "dane bazy (konfiguracja): $(db_mount_expected)"
 
     section "Docker"
     docker version --format 'Docker {{.Server.Version}}' 2> /dev/null || echo "Docker niedostępny"

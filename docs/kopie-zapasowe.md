@@ -7,6 +7,16 @@ cd "/volume1/Sztudio Smart Home/repository"
 ```
 
 Skrypty nie wypisują zawartości `.env` ani kluczy prywatnych i nigdy nie usuwają woluminów ani bazy produkcyjnej.
+**Git nie jest wymagany.** `.env` i klucze w `certs/` należą do roota – uruchamiaj skrypty przez `sudo`
+(bez dostępu skrypt kończy się jednoznacznym błędem zamiast tworzyć niekompletną kopię):
+
+```bash
+sudo bash scripts/backup.sh
+```
+
+Skrypty używają tych samych plików Compose, z którymi działa stos (odczyt z etykiet kontenerów – na NAS-ie
+`docker-compose.yml` + `compose.nas.yml`); przed każdą operacją wypisują ich listę. Jawnie:
+`SZTUDIO_COMPOSE_FILES="docker-compose.yml:compose.nas.yml"`.
 
 ## Co trzeba chronić
 
@@ -33,7 +43,7 @@ Można go też podać jednorazowo: `SZTUDIO_BACKUP_DIR=/inny/katalog scripts/bac
 ## Kopia ręczna (pełna)
 
 ```bash
-scripts/backup.sh --label "przed zmianą konfiguracji"
+sudo bash scripts/backup.sh --label "przed zmianą konfiguracji"
 ```
 
 Tworzy `SZTUDIO_BACKUP_DIR/sztudio-RRRRMMDD-GGMMSS/`:
@@ -43,12 +53,20 @@ Tworzy `SZTUDIO_BACKUP_DIR/sztudio-RRRRMMDD-GGMMSS/`:
 | `sztudio.dump` | zrzut bazy `pg_dump -Fc`, wykonany w działającym kontenerze bazy (bez zatrzymywania usług) |
 | `row-counts.txt` | liczba wierszy w tabelach – liczona przed i po zrzucie; przy różnicy (zapis w trakcie) zrzut jest powtarzany |
 | `dump-contents.txt` | spis zawartości zrzutu (`pg_restore --list`) – dowód, że zrzut jest czytelny |
-| `config.tar.gz` | `.env`, `certs/` (z kluczem CA), pliki Compose, także `docker-compose.override.yml` – **zawiera sekrety** |
-| `git.txt`, `git-local-changes.diff` | wersja kodu i lokalne zmiany w plikach śledzonych |
-| `manifest.txt`, `SHA256SUMS` | opis kopii (obraz i wersja PostgreSQL) i sumy kontrolne |
+| `config.tar.gz` | **zawiera sekrety**: `.env*`; wszystkie pliki Compose z katalogu (`docker-compose*.yml`, `compose*.yml` – w tym `compose.nas.yml` i override) oraz pliki Compose użyte przez stos, jeśli leżą poza katalogiem; `docker/` (konfiguracja nginx i go2rtc); `certs/` (certyfikaty publiczne i klucze prywatne serwera i CA); `VERSION`, `.sztudio-release/` |
+| `config-files.sha256` | suma SHA-256 każdego pliku konfiguracji – weryfikacja porównuje z nią treść archiwum |
+| `version.txt` | wersja kodu (`VERSION`; commit tylko, gdy Git jest dostępny) |
+| `manifest.txt`, `SHA256SUMS` | opis kopii (pliki Compose, katalog danych bazy, obraz i wersja PostgreSQL) i sumy kontrolne |
+
+Kopia jest przerywana, gdy brakuje któregoś z plików: `.env`, `docker-compose.yml`, `docker/nginx/default.conf.template`,
+`docker/go2rtc.yaml`, `certs/public/server.crt`, `certs/public/server.key`, albo gdy któryś plik konfiguracji jest
+nieczytelny. Dane bazy z `/volume1/Sztudio Smart Home/postgres` są kopiowane wyłącznie jako zrzut `pg_dump`
+(kopia plików działającej bazy nie byłaby spójna).
 
 Uprawnienia: katalog `700`, pliki `600`. Retencja: zostaje 14 najnowszych kopii utworzonych przez skrypt
-(`--keep N`, `--keep 0` = bez usuwania). Katalogi o innych nazwach (np. ręczne `pre-2.0-…`) nie są nigdy usuwane.
+(`--keep N`, `--keep 0` = bez usuwania). Usuwane są wyłącznie katalogi o nazwie `sztudio-RRRRMMDD-GGMMSS`
+z plikiem znacznika `.sztudio-backup` – Twoje ręczne kopie (np. `pre-2.0-…`) nie są nigdy usuwane.
+Kopie sprzed aktualizacji (z katalogiem `update/` – punkty wycofania) również nie podlegają retencji.
 `--no-config` pomija archiwum z sekretami (np. kopia przekazywana do analizy).
 
 **Kopię poza NAS-em** (dysk USB, drugi serwer) wykonuj samodzielnie – kopia na tym samym dysku nie chroni przed
@@ -81,13 +99,14 @@ po każdej zmianie konfiguracji (albo cyklicznie przez harmonogram zadań UGOS /
 ## Weryfikacja kopii (nieniszcząca)
 
 ```bash
-scripts/verify-backup.sh
+sudo bash scripts/verify-backup.sh
 ```
 
 Bez argumentu – najnowsza kopia ręczna; można podać katalog kopii albo plik `auto/….dump`.
 Skrypt sprawdza sumy kontrolne, odtwarza zrzut w **tymczasowym kontenerze PostgreSQL bez sieci, z danymi
 w pamięci**, porównuje liczbę wierszy każdej tabeli z zapisaną w chwili kopii, sprawdza obecność schematu
-Sztudio (`alembic_version`, `users`) i czytelność `config.tar.gz`. Kontener jest usuwany po teście. Baza
+Sztudio (`alembic_version`, `users`), a w `config.tar.gz` – obecność wymaganych plików i treść **każdego** pliku
+względem `config-files.sha256` (odczyt strumieniowy, sekrety nie są zapisywane na dysk). Kontener jest usuwany po teście. Baza
 produkcyjna nie jest używana. Kod wyjścia `0` tylko dla poprawnej kopii.
 
 Weryfikuj kopie regularnie (np. raz w miesiącu) – kopia, której nie sprawdzono, może nie dać się odtworzyć.
@@ -95,17 +114,19 @@ Weryfikuj kopie regularnie (np. raz w miesiącu) – kopia, której nie sprawdzo
 ## Odtworzenie bazy
 
 ```bash
-scripts/restore.sh "/volume1/Sztudio Smart Home/backups/sztudio-RRRRMMDD-GGMMSS"
+sudo bash scripts/restore.sh "/volume1/Sztudio Smart Home/backups/sztudio-RRRRMMDD-GGMMSS"
 ```
 
 Skrypt pyta o potwierdzenie (wpisanie `PRZYWRÓĆ`), a następnie:
 
-1. sprawdza sumy kontrolne kopii,
+1. sprawdza sumy kontrolne kopii (bez sum – odmawia),
 2. wykonuje **nową kopię obecnego stanu** (przerywa, jeśli się nie uda),
-3. odtwarza zrzut do nowej bazy `sztudio_restore_<czas>` (przy błędzie obecna baza pozostaje bez zmian),
-4. zatrzymuje Core (i usługę backup), zamienia nazwy: obecna baza → `sztudio_before_restore_<czas>`,
-   odtworzona → `sztudio`,
-5. uruchamia zatrzymane usługi i czeka na healthcheck Core.
+3. odtwarza zrzut do nowej bazy `sztudio_restore_<czas>` i sprawdza ją **przed zamianą**: schemat Sztudio
+   i liczba wierszy zgodna z kopią (przy niezgodności nowa baza jest usuwana, obecna pozostaje bez zmian),
+4. zatrzymuje Core (i usługę backup), zamienia nazwy **w jednej transakcji**: obecna baza →
+   `sztudio_before_restore_<czas>`, odtworzona → `sztudio` (albo obie zmiany, albo żadna),
+5. uruchamia zatrzymane usługi i czeka na healthcheck Core. Przy błędzie w krokach 4–5 przed zamianą usługi są
+   uruchamiane ponownie, a obecna baza pozostaje bez zmian.
 
 **Poprzednia baza nie jest usuwana.** Lista baz:
 
@@ -146,16 +167,20 @@ Na nowym serwerze: skopiuj `.env` i `certs/` do katalogu repozytorium **przed** 
 
 ## Jak to zostało sprawdzone
 
-Na stosie Docker Compose w środowisku deweloperskim (PostgreSQL 16, Core, go2rtc, nginx, testowe źródło RTSP),
-z osobnym `.env` zawierającym wyłącznie testowe sekrety i katalogiem kopii ze spacją w nazwie:
+**Symulacja NAS-a (Etap 0.1)** – katalogi `…/Sztudio Smart Home/{repository,postgres,backups}` (spacje w ścieżkach),
+wersja 1.0 skopiowana bez `.git`, `compose.nas.yml` z bind mountem danych bazy, **Docker Compose v5.1.3**
+(jak na NAS-ie), środowisko **bez `git`, `unzip` i `python3`**, osobny `.env` wyłącznie z testowymi sekretami:
 
-- kopia ręczna → weryfikacja (10 tabel, liczby wierszy zgodne) → zmiana danych → `restore.sh` → zmiana cofnięta,
-  poprzednia baza zachowana, logowanie przez HTTPS działa;
-- kopia automatyczna przy starcie i jej weryfikacja; zrzut pustej bazy oraz uszkodzony plik (zmieniony bajt)
-  są odrzucane przez `verify-backup.sh`;
-- aktualizacja przez `scripts/update.sh` do wersji z dodatkową migracją i wycofanie wg wygenerowanego
-  `ROLLBACK.txt` (powrót do schematu `0002`, wszystkie usługi zdrowe);
-- raport diagnostyczny, logi i wyniki skryptów przeszukane pod kątem testowych haseł, tokenu JWT i kluczy – 0 wystąpień.
+- `backup.sh` + `verify-backup.sh`: 10 tabel i schemat `0002` po odtworzeniu, 15 plików konfiguracji zgodnych
+  z sumami (w tym `compose.nas.yml`, nginx, go2rtc, klucze prywatne, plik Compose spoza katalogu);
+- uruchomienie bez sudo: jednoznaczny błąd (brak dostępu do `.env` / kluczy), żadna niekompletna kopia;
+- `restore.sh`: uszkodzona kopia i zrzut innej bazy odrzucone bez zmian; wymuszony błąd zamiany nazw – transakcja
+  wycofana, Core uruchomiony ponownie, baza `sztudio` nietknięta;
+- retencja: obcy katalog o pasującej nazwie, ręczna kopia i punkt wycofania (`update/`) zachowane;
+- usługa `backup` (profil) na Compose v5.1.3: zrzut po migracjach, weryfikacja poprawna;
+- pełne cykle aktualizacji i wycofania – opis w [aktualizacja-i-wycofanie.md](aktualizacja-i-wycofanie.md)
+  i w dzienniku zmian;
+- logi wszystkich przebiegów i raport diagnostyczny: 0 wystąpień testowych haseł, tokenów i kluczy.
 
-Testy automatyczne konfiguracji i skryptów: `core/.venv/bin/pytest tests/infra`.
-**Na NAS-ie skrypty nie były uruchamiane** – pierwsze użycie wykonaj z weryfikacją (`scripts/verify-backup.sh`).
+Testy automatyczne konfiguracji i skryptów: `core/.venv/bin/pytest tests/infra` (91 testów).
+**Na NAS-ie skrypty nie były uruchamiane** – pierwsze użycie wykonaj z weryfikacją (`sudo bash scripts/verify-backup.sh`).

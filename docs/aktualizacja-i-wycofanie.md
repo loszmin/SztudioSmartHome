@@ -1,114 +1,125 @@
 # Aktualizacja i wycofanie wersji
 
 Aktualizację wykonuje wyłącznie administrator serwera, ręcznie. Panel WWW i aplikacja nie uruchamiają poleceń na NAS-ie.
+**Git nie jest potrzebny** – nowa wersja jest dostarczana jako archiwum (np. „Code → Download ZIP” na GitHubie).
 
-## Przed pierwszą aktualizacją z wersji 1.0
+Ścieżki w przykładach odpowiadają NAS-owi UGREEN DXP2800:
 
-Wersja 1.0 nie zawiera skryptów z tego dokumentu. Pierwszą kopię wykonaj poleceniami ręcznymi z
-[SZTUDIO_SMART_HOME_2.0_PLAN.md, sekcja 9](SZTUDIO_SMART_HOME_2.0_PLAN.md#9-kopia-zapasowa-przed-modernizacją-do-wykonania-przez-użytkownika)
-i sprawdź konfigurację produkcji (sekcja 8.1). Jeśli `git status` pokazuje zmiany w `docker-compose.yml`
-(np. ścieżka danych bazy `/volume1/Sztudio Smart Home/postgres`), przenieś je do `docker-compose.override.yml`
-**przed** aktualizacją – inaczej `git merge` się nie uda, a nowa wersja pliku nie zawierałaby Twojej ścieżki.
+| Element | Ścieżka |
+| --- | --- |
+| Instalacja | `/volume1/Sztudio Smart Home/repository` |
+| Dane PostgreSQL (bind mount z `compose.nas.yml`) | `/volume1/Sztudio Smart Home/postgres` |
+| Kopie zapasowe | `/volume1/Sztudio Smart Home/backups` |
+| Wydania (proponowane) | `/volume1/Sztudio Smart Home/releases` |
 
-Przykład `docker-compose.override.yml` dla danych bazy w katalogu NAS-a (dostosuj do tego, co pokazało
-polecenie z sekcji 8.1 planu – ścieżka musi być **dokładnie** ta, w której teraz leżą dane):
+Pliki `.env` i `certs/` należą do roota – skrypty uruchamia się przez `sudo`.
 
-```yaml
-services:
-  db:
-    volumes:
-      - "/volume1/Sztudio Smart Home/postgres:/var/lib/postgresql/data"
-```
+## Jak działa aktualizacja
 
-Compose łączy woluminy według ścieżki w kontenerze, więc ten wpis zastępuje `db-data` z `docker-compose.yml`.
+`scripts/update.sh --from WYDANIE`:
 
-Po utworzeniu pliku sprawdź, że Compose widzi tę samą ścieżkę, zanim cokolwiek uruchomisz:
+1. rozpakowuje wydanie (katalog, `.tar.gz` albo `.zip`; bez `unzip` i Pythona używa busybox z obrazu bazy),
+   sprawdza, że to wydanie Sztudio (`VERSION`, `scripts/rollback.sh`, `core/alembic/versions`),
+2. porównuje pliki z instalacją: nowe, zmienione, usunięte w nowej wersji; wykrywa zmianę migracji bazy,
+3. ustala pliki Compose **z etykiet działającego stosu** – dokładnie te, z którymi stos został uruchomiony
+   (np. `docker-compose.yml` + `compose.nas.yml`) – i sprawdza, że katalog danych bazy się zgadza,
+4. wykonuje i weryfikuje kopię zapasową (`backup.sh`, `verify-backup.sh`) – przy błędzie przerywa bez zmian,
+5. zapisuje w kopii dane do wycofania (`update/`): poprzednie wersje nadpisywanych plików, listę plików dodanych,
+   identyfikatory działających obrazów (dodatkowo tag `sztudio-core:rollback-…`, `sztudio-web:rollback-…`),
+   oraz narzędzia nowej wersji (`tools/`, w tym `rollback.sh`),
+6. podmienia pliki kodu; **nigdy nie zmienia** `.env*` (poza `.env.example`), `certs/`, `backups/`, `compose.nas.yml`,
+   `docker-compose.override.yml`, `compose.override.yml`. Uprawnienia jak w repozytorium (644, skrypty 755),
+   właściciel jak katalogu instalacji,
+7. ponownie sprawdza katalog danych bazy w nowej konfiguracji, buduje obrazy, uruchamia `docker compose up -d`,
+   czeka do 4 minut na healthchecki i zapisuje `ROLLBACK.txt`.
 
-```bash
-docker compose config db | grep -A4 "volumes:"
-```
+Gdy cokolwiek zawiedzie **przed** uruchomieniem nowych kontenerów (kontrola, budowanie, podmiana plików), pliki
+i tagi obrazów wracają do stanu sprzed aktualizacji, a działające usługi nie są zmieniane.
+Pliki usuwane są tylko wtedy, gdy zainstalowało je poprzednie wydanie (manifest `.sztudio-release/files.txt`);
+przy pierwszej aktualizacji z 1.0 nic nie jest usuwane.
 
-Oczekiwane `source: /volume1/Sztudio Smart Home/postgres` i `target: /var/lib/postgresql/data`
-(filtr `grep` jest celowy – pełny wynik `docker compose config` zawiera hasła z `.env`).
+### Strażnik danych bazy
 
-### Pierwsza aktualizacja (1.0 → wersja ze skryptami)
+Skrypty porównują katalog danych faktycznie zamontowany w kontenerze bazy z tym, który wynika z plików Compose.
+Jeśli się różnią (np. polecenie bez `compose.nas.yml` podłączyłoby pusty wolumin `db-data` zamiast
+`/volume1/Sztudio Smart Home/postgres`), aktualizacja i wycofanie są przerywane **przed jakąkolwiek zmianą**.
+Pliki Compose można też wskazać jawnie: `SZTUDIO_COMPOSE_FILES="docker-compose.yml:compose.nas.yml"`.
 
-Skrypt `update.sh` jest dopiero w nowej wersji, więc pierwszy raz wykonaj kroki ręcznie (po kopii z sekcji 9 planu):
+## Pierwsza aktualizacja (1.0 → 2.0)
 
-```bash
-git fetch origin && git status --short --untracked-files=no
-```
+Wersja 1.0 nie zawiera skryptów, więc uruchamia się je z rozpakowanego wydania.
 
-Wynik `git status` musi być pusty (inaczej – najpierw override, jak wyżej).
-
-```bash
-docker image tag sztudio-core:local sztudio-core:rollback-1.0
-```
-
-```bash
-git merge --ff-only origin/feature/sztudio-smart-home-2.0
-```
-
-```bash
-docker compose up -d --build && docker compose ps
-```
-
-Etap 0 nie zmienia schematu bazy. Wycofanie: `git reset --keep ORIG_HEAD`, `docker tag sztudio-core:rollback-1.0 sztudio-core:local`,
-`docker compose up -d --build`. Kolejne aktualizacje – już przez `scripts/update.sh`.
-
-## Aktualizacja
+1. Pobierz archiwum gałęzi `feature/sztudio-smart-home-2.0` (GitHub → Code → Download ZIP) i skopiuj je do
+   `/volume1/Sztudio Smart Home/releases/` i rozpakuj – w menedżerze plików UGOS, jeśli oferuje rozpakowywanie,
+   albo na komputerze, a następnie skopiuj cały katalog przez udział sieciowy. Utracone uprawnienia plików
+   nie przeszkadzają: skrypty uruchamia się przez `bash`, a `update.sh` ustawia uprawnienia sam.
+2. Upewnij się, że ścieżka produkcyjnej bazy jest w `compose.nas.yml`, a nie w zmienionym `docker-compose.yml`
+   (aktualizacja zastępuje `docker-compose.yml`; strażnik i tak przerwie, jeśli ścieżka by się zmieniła):
 
 ```bash
-scripts/update.sh --dry-run origin/feature/sztudio-smart-home-2.0
+cd "/volume1/Sztudio Smart Home/repository" && grep -n "postgres" compose.nas.yml
 ```
 
-Tryb `--dry-run` pokazuje listę zmian i ostrzeżenie o migracjach bazy, niczego nie zmienia. Następnie:
+3. Podgląd zmian (niczego nie zmienia):
 
 ```bash
-scripts/update.sh origin/feature/sztudio-smart-home-2.0
+sudo SZTUDIO_ROOT="/volume1/Sztudio Smart Home/repository" bash "/volume1/Sztudio Smart Home/releases/SztudioSmartHome-feature-sztudio-smart-home-2.0/scripts/update.sh" --from "/volume1/Sztudio Smart Home/releases/SztudioSmartHome-feature-sztudio-smart-home-2.0" --dry-run
 ```
 
-(albo tag wydania, np. `v2.0.0`). Skrypt:
-
-1. przerywa, gdy w plikach śledzonych są lokalne zmiany albo wersja docelowa nie jest kontynuacją obecnej,
-2. wykonuje `scripts/backup.sh` i `scripts/verify-backup.sh` – przy błędzie przerywa bez zmian,
-3. oznacza obecne obrazy jako `sztudio-core:rollback-<commit>` i `sztudio-web:rollback-<commit>`,
-4. `git merge --ff-only` (bez nadpisywania historii), kopiuje narzędzia nowej wersji do katalogu kopii,
-5. `docker compose build` i `up -d`, czeka do 3 minut na healthchecki wszystkich usług,
-6. zapisuje `ROLLBACK.txt` z gotowymi poleceniami wycofania w katalogu kopii.
-
-Migracje bazy wykonuje Core przy starcie. Po aktualizacji: otwórz panel, sprawdź kamery i uruchom
+4. Aktualizacja (pyta o potwierdzenie słowem `AKTUALIZUJ`):
 
 ```bash
-scripts/diagnostics.sh --output /tmp/sztudio-diagnostyka.txt
+sudo SZTUDIO_ROOT="/volume1/Sztudio Smart Home/repository" bash "/volume1/Sztudio Smart Home/releases/SztudioSmartHome-feature-sztudio-smart-home-2.0/scripts/update.sh" --from "/volume1/Sztudio Smart Home/releases/SztudioSmartHome-feature-sztudio-smart-home-2.0"
 ```
 
-## Wycofanie
+Kopie trafią do `SZTUDIO_BACKUP_DIR` – dopisz wcześniej do `.env` linię
+`SZTUDIO_BACKUP_DIR=/volume1/Sztudio Smart Home/backups` (bez tego: `repository/backups`).
 
-Wykonaj polecenia z `ROLLBACK.txt` z katalogu kopii utworzonej przy aktualizacji. Ich postać:
+Etap 0 nie zmienia schematu bazy (pozostaje `0002`).
+
+## Kolejne aktualizacje
 
 ```bash
 cd "/volume1/Sztudio Smart Home/repository"
-docker compose stop core
-git reset --keep <poprzedni-commit>
-docker tag sztudio-core:rollback-<commit> sztudio-core:local
-docker tag sztudio-web:rollback-<commit> sztudio-web:local
-# tylko gdy aktualizacja zawierała migracje bazy:
-SZTUDIO_ROOT="…/repository" "…/backups/sztudio-…/tools/restore.sh" "…/backups/sztudio-…"
-docker compose up -d --no-build
 ```
 
-- `git reset --keep` przesuwa gałąź z powrotem i odmawia, jeśli nadpisałby lokalne zmiany.
-- Obrazy `rollback-…` pozwalają wrócić bez ponownego budowania.
-- Gdy wersja zawierała migracje, stara wersja Core nie uruchomi się na nowszym schemacie – wtedy odtwarzana
-  jest kopia sprzed aktualizacji (`restore.sh` z kopii narzędzi; obecna baza zostaje zachowana pod inną nazwą).
-  Dane zapisane po aktualizacji (nowe zdarzenia, zmiany konfiguracji) nie trafią do odtworzonej bazy.
-- Przy wycofaniu do 1.0 obraz panelu w 1.0 nie ma nazwy `sztudio-web` – Compose użyje obrazu
-  `<projekt>-web` zbudowanego wcześniej. Jeśli został usunięty, wykonaj `docker compose up -d --build`.
+```bash
+sudo bash scripts/update.sh --from "/volume1/Sztudio Smart Home/releases/ARCHIWUM.zip" --dry-run
+```
+
+```bash
+sudo bash scripts/update.sh --from "/volume1/Sztudio Smart Home/releases/ARCHIWUM.zip"
+```
+
+Po aktualizacji: otwórz panel, sprawdź kamery i uruchom `sudo bash scripts/diagnostics.sh`.
+
+## Wycofanie
+
+Polecenie jest w `ROLLBACK.txt` w katalogu kopii utworzonej przy aktualizacji:
+
+```bash
+sudo SZTUDIO_ROOT="/volume1/Sztudio Smart Home/repository" bash "/volume1/Sztudio Smart Home/backups/sztudio-RRRRMMDD-GGMMSS/tools/rollback.sh" "/volume1/Sztudio Smart Home/backups/sztudio-RRRRMMDD-GGMMSS"
+```
+
+`rollback.sh` (potwierdzenie słowem `WYCOFAJ`):
+
+1. zatrzymuje Core,
+2. usuwa pliki dodane przez aktualizację (i puste katalogi po nich), przywraca nadpisane i usunięte,
+3. przywraca poprzednie obrazy po identyfikatorze (także obraz panelu `repository-web` z wersji 1.0),
+4. jeśli aktualizacja zmieniała migracje – odtwarza bazę z kopii sprzed aktualizacji (`restore.sh`: obecna baza
+   zostaje zachowana pod nazwą `sztudio_before_restore_…`); `--with-db` / `--no-db` wymuszają wybór,
+5. sprawdza katalog danych bazy i uruchamia poprzednią wersję bez budowania.
+
+Kroki są powtarzalne – po przerwaniu (np. brak miejsca) usuń przyczynę i uruchom to samo polecenie ponownie.
+Dane zapisane po aktualizacji nie trafią do bazy odtworzonej z kopii (dotyczy tylko wydań z migracjami).
+
+Kopie sprzed aktualizacji (z katalogiem `update/`) **nie są usuwane przez retencję** – usuń je ręcznie, gdy wycofanie
+nie będzie już potrzebne.
 
 ## Nigdy
 
 - `docker compose down -v`, `docker volume rm/prune`, `docker system prune --volumes` – usuwają dane bazy.
-- Zmiana definicji woluminu bazy bez sprawdzenia `docker compose config db` – baza wystartowałaby pusta.
+- Uruchamianie `docker compose up` bez `-f compose.nas.yml`, jeśli produkcja z niego korzysta – Compose podłączy
+  wolumin `db-data` i baza wystartuje pusta (dane w `/volume1/…/postgres` pozostaną, ale usługi będą ich nie widzieć).
 - Regenerowanie `certs/ca/` – wymaga ponownej instalacji certyfikatu na wszystkich urządzeniach.
 - Zmiana `SZTUDIO_SECRET_KEY` – zapisane hasła kamer i rejestratorów stają się nieczytelne.

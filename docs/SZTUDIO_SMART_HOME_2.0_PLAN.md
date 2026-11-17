@@ -6,10 +6,20 @@ ostatniego commitu wersji 1.0 na `claude/stoic-pasteur-emqyh1`). W repozytorium 
 Środowisko docelowe: NAS UGREEN DXP2800 (UGOS / Debian), `192.168.1.11`, Docker Compose, PostgreSQL 16,
 panel `https://192.168.1.11:8443`.
 
-> **Ważne:** audyt dotyczy kodu w repozytorium. Autor audytu **nie ma dostępu do NAS-a**: nie widział
-> działającej instalacji, jej pliku `.env`, ewentualnego `docker-compose.override.yml` ani stanu bazy.
-> Wszystkie różnice między repozytorium a produkcją opisane niżej są wnioskami z opisu instalacji
-> i muszą zostać potwierdzone (sekcja 8.1).
+> **Ważne:** autor audytu **nie ma dostępu do NAS-a**. Fakty o produkcji poniżej pochodzą od użytkownika
+> (stan na 2026-11-17); konfiguracji `compose.nas.yml` i `.env` autor nie widział.
+
+### Potwierdzone fakty o produkcji (od użytkownika, 2026-11-17)
+
+| Element | Stan |
+| --- | --- |
+| Repozytorium | `/volume1/Sztudio Smart Home/repository` – **bez Gita** (Git nie jest zainstalowany na NAS-ie) |
+| Dane PostgreSQL | `/volume1/Sztudio Smart Home/postgres` (bind mount – nie wolumin `db-data` z repozytorium) |
+| Kopie | `/volume1/Sztudio Smart Home/backups` |
+| Użytkownik SSH | `loszmin` (pliki `.env` / `certs/` należą do roota → `sudo`) |
+| Usługi | `certs`, `db`, `core`, `go2rtc`, `web`; obraz bazy `postgres:16-alpine`; schemat Alembic `0002` |
+| Docker Compose | v5.1.3 |
+| Kopia przed 2.0 | **wykonana przez użytkownika**: `pg_dump -Fc`, `pg_restore -l`, `pg_restore --schema-only`, pełne odtworzenie w izolowanym kontenerze (10 tabel, `0002`), kopia konfiguracji i certyfikatów; usługi produkcyjne działają |
 
 ## 1. Stan wyjściowy – wyniki testów przed zmianami
 
@@ -21,7 +31,8 @@ panel `https://192.168.1.11:8443`.
 | Android przeciw prawdziwemu Core | `./gradlew testDebugUnitTest -PrealCore` | 7 / 7 przy wersji 1.0 (wymaga stosu Docker) |
 | Testy ze sprzętem (kamera, BCS, telefon) | – | **nigdy nie wykonano** |
 
-Stan etapów: **Etap 0 – zrealizowany i sprawdzony na stosie Docker, niewdrożony na NAS** (szczegóły i wyniki:
+Stan etapów: **Etap 0 + poprawki 0.1 – zrealizowane i sprawdzone w symulacji NAS-a (Compose v5.1.3, bind mount
+bazy w ścieżce ze spacjami, bez Gita), niewdrożone na NAS** (szczegóły i wyniki:
 [SZTUDIO_SMART_HOME_2.0_CHANGELOG.md](SZTUDIO_SMART_HOME_2.0_CHANGELOG.md)). Etapy I–VII – nierozpoczęte.
 
 ## 2. Stan modułów
@@ -96,6 +107,10 @@ Braki: **nigdy nie uruchomiona na telefonie**, brak konfiguracji podpisu release
 | R11 | Integracje sprzętowe niezweryfikowane (kamera, BCS, ONVIF multicast) | Średni | II – wymaga użytkownika |
 | R12 | nginx i go2rtc jako root w kontenerach | Niski | VI |
 | R13 | nginx rozwiązywał `core` tylko przy starcie → 502 po zmianie IP Core (wykryte w Etapie 0) | Wysoki | 0 – naprawione |
+| R14 | Skrypty Etapu 0 wymagały Gita (brak na NAS-ie) – `backup.sh` nie działał, `update.sh` całkowicie oparty na Gicie | Krytyczny | 0.1 – naprawione |
+| R15 | Skrypty wywoływały `docker compose` bez `compose.nas.yml` → `up -d` w aktualizacji mógł uruchomić bazę na pustym `db-data` | Krytyczny | 0.1 – naprawione (pliki z etykiet stosu + strażnik montowania) |
+| R16 | Kopia konfiguracji bez `compose.nas.yml`, nginx, go2rtc; pliki root-owned po cichu pomijane przy braku sudo | Wysoki | 0.1 – naprawione |
+| R17 | `restore.sh`: zamiana nazw baz poza transakcją, brak restartu usług po błędzie | Wysoki | 0.1 – naprawione i sprawdzone wymuszonym błędem |
 
 ## 4. Proponowane zmiany wg etapów
 
@@ -105,17 +120,17 @@ Kolejność została zmieniona względem zlecenia o **Etap 0 – bezpieczeństwo
 ### Etap 0 – bezpieczeństwo danych i operacje (bez zmian kodu aplikacji i schematu)
 
 - `scripts/backup.sh` – pełna kopia: zrzut bazy `pg_dump -Fc` przez `docker compose exec`, weryfikacja zrzutu,
-  archiwum konfiguracji (`.env`, `certs/` łącznie z kluczem CA – plik nie jest wyświetlany), sumy SHA-256,
-  stan Git, retencja, uprawnienia `700/600`, obsługa ścieżek ze spacjami.
+  archiwum konfiguracji (`.env*`, wszystkie pliki Compose z `compose.nas.yml`, nginx, go2rtc, `certs/` z kluczami –
+  bez wyświetlania), suma każdego pliku konfiguracji, retencja, uprawnienia `700/600`, ścieżki ze spacjami, bez Gita.
 - `scripts/verify-backup.sh` – nieniszcząca próba odtworzenia zrzutu w **tymczasowym, odizolowanym kontenerze**
   PostgreSQL (bez sieci), raport liczby wierszy w tabelach. Produkcyjna baza nie jest dotykana.
 - Usługa `backup` w Compose (profil `backup`, opcjonalna) – automatyczny zrzut bazy co N godzin z retencją.
 - `scripts/diagnostics.sh` – raport bez sekretów: wersje, stan kontenerów i healthchecków, porty, ważność
   certyfikatów publicznych, miejsce na dysku, ostatnie kopie, ostatnie linie logów z maskowaniem.
-- `scripts/update.sh` – aktualizacja z kopią przed zmianą, oznaczeniem obrazów do wycofania i oczekiwaniem
-  na healthchecki; procedura wycofania w dokumentacji.
-- Compose: rotacja logów, healthchecki `web` i `go2rtc`, `no-new-privileges` (bez `db`), nazwy obrazów
-  z wersją (`SZTUDIO_IMAGE_TAG`). **Definicja woluminu bazy bez zmian.**
+- `scripts/update.sh` – aktualizacja **z archiwum wydania, bez Gita** (0.1), z kopią przed zmianą, danymi do
+  wycofania, strażnikiem danych bazy i oczekiwaniem na healthchecki; `scripts/rollback.sh` – wycofanie.
+- Compose: rotacja logów, healthchecki `web` i `go2rtc`, `no-new-privileges` (bez `db`), nazwa obrazu
+  `sztudio-web:local`. **Definicja woluminu bazy bez zmian** (produkcja nadpisuje ją w `compose.nas.yml`).
 - Testy konfiguracji Compose (brak publikacji `db`/`core`/API go2rtc, limity logów, healthchecki) i skryptów.
 - Dokumentacja: `docs/kopie-zapasowe.md`, `docs/aktualizacja-i-wycofanie.md`.
 
@@ -212,79 +227,51 @@ w `src/types/api.ts`, DTO Androida i `docs/ANDROID_API_MAPPING.md`. Zmiany API s
 
 ## 8. Kolejność wdrożenia na NAS (wyłącznie przez użytkownika, po akceptacji)
 
-### 8.1 Przed jakąkolwiek zmianą – potwierdzenie konfiguracji produkcji
-
-Na NAS-ie, w katalogu repozytorium (wyniki nie zawierają sekretów):
+### 8.1 Przed wdrożeniem Etapu 0 – kontrola konfiguracji produkcji (bez Gita, wyniki bez sekretów)
 
 ```bash
 cd "/volume1/Sztudio Smart Home/repository"
 ```
 
 ```bash
-git status --short && git log --oneline -3 && git branch -a
+ls -la docker-compose*.yml compose*.yml; sudo docker compose -f docker-compose.yml -f compose.nas.yml ps
 ```
 
 ```bash
-ls -la docker-compose*.yml compose*.yml 2>/dev/null; docker compose ps
+sudo docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' $(sudo docker ps -q -f label=com.docker.compose.service=db -f "label=com.docker.compose.project.working_dir=/volume1/Sztudio Smart Home/repository")
 ```
 
 ```bash
-docker compose config --services; docker inspect --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' $(docker compose ps -q db)
+sudo docker inspect -f '{{range .Mounts}}{{.Type}} {{.Source}} -> {{.Destination}}{{println}}{{end}}' $(sudo docker ps -q -f label=com.docker.compose.service=db -f "label=com.docker.compose.project.working_dir=/volume1/Sztudio Smart Home/repository")
 ```
 
-Ostatnie polecenie pokazuje, gdzie naprawdę leżą dane bazy. Nie uruchamiaj `docker compose config` bez
-argumentów – wypisuje wartości z `.env`.
+Pierwsze `inspect` pokazuje pliki Compose, z którymi działa stos (skrypty użyją dokładnie ich), drugie – katalog
+danych bazy (oczekiwane: `bind /volume1/Sztudio Smart Home/postgres -> /var/lib/postgresql/data`).
+Nie uruchamiaj `docker compose config` bez filtra – wypisuje wartości z `.env`.
 
 ### 8.2 Kolejność
 
-1. Kopia zapasowa (sekcja 9) i jej weryfikacja.
-2. Etap 0: `git fetch` + przełączenie na wydanie, `docker compose up -d --build` – zmienia tylko konfigurację
-   kontenerów (logi, healthchecki), nie bazę. Jeśli produkcja ma własny plik override z woluminem
-   `/volume1/Sztudio Smart Home/postgres`, musi on pozostać na miejscu.
-3. Każdy kolejny etap: kopia → aktualizacja (`scripts/update.sh`) → kontrola (`scripts/diagnostics.sh`) →
-   test ręczny → ewentualne wycofanie.
+1. Kopia zapasowa – **wykonana** przez użytkownika (sekcja 9). Dopisz do `.env` linię
+   `SZTUDIO_BACKUP_DIR=/volume1/Sztudio Smart Home/backups`.
+2. Etap 0: procedura „Pierwsza aktualizacja” z [aktualizacja-i-wycofanie.md](aktualizacja-i-wycofanie.md) –
+   najpierw `--dry-run`, potem aktualizacja (zawiera kopię i jej weryfikację). Zmienia konfigurację kontenerów
+   (logi, healthchecki, nginx), nie schemat bazy.
+3. Po wdrożeniu: `sudo bash scripts/diagnostics.sh`, sprawdzenie panelu i kamer; w razie problemu – `ROLLBACK.txt`.
+4. Każdy kolejny etap: `update.sh --dry-run` → `update.sh` → kontrola → test ręczny → ewentualne wycofanie.
 
-## 9. Kopia zapasowa przed modernizacją (do wykonania przez użytkownika)
+## 9. Kopia zapasowa przed modernizacją
 
-Autor **nie wykonał** kopii – nie ma dostępu do NAS-a. Skrypty z Etapu 0 nie są jeszcze na NAS-ie, dlatego
-poniżej polecenia ręczne (zakładają nazwy z repozytorium: usługa `db`, użytkownik i baza `sztudio`):
-
-```bash
-cd "/volume1/Sztudio Smart Home/repository"
-```
-
-```bash
-B="/volume1/Sztudio Smart Home/backups/pre-2.0-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$B" && chmod 700 "$B" && echo "$B"
-```
-
-```bash
-docker compose exec -T db pg_dump -U sztudio -d sztudio -Fc > "$B/sztudio.dump" && chmod 600 "$B/sztudio.dump"
-```
-
-```bash
-docker compose exec -T db pg_restore --list < "$B/sztudio.dump" | head -5
-```
-
-```bash
-(umask 077; tar -czf "$B/config.tar.gz" .env certs $(ls docker-compose*.yml compose*.yml 2>/dev/null))
-```
-
-```bash
-git rev-parse HEAD > "$B/git-commit.txt"; git status --short > "$B/git-status.txt"; git diff > "$B/git-local-changes.diff"
-```
-
-```bash
-(cd "$B" && sha256sum sztudio.dump config.tar.gz > SHA256SUMS && cat SHA256SUMS && ls -la)
-```
-
-`config.tar.gz` zawiera `.env` i prywatny klucz CA – przechowuj go wyłącznie na NAS-ie lub zaszyfrowanym
-nośniku. Po wdrożeniu Etapu 0 te same kroki wykonuje `scripts/backup.sh`.
+**Wykonana przez użytkownika** (2026-11-17, informacja od użytkownika): `pg_dump -Fc`, kontrola `pg_restore -l`
+i `pg_restore --schema-only`, pełne odtworzenie do izolowanego kontenera PostgreSQL (10 tabel, migracja `0002`),
+usunięcie kontenera testowego, kopia konfiguracji i certyfikatów; cztery usługi produkcyjne działają.
+Autor nie ma dostępu do NAS-a i nie weryfikował tej kopii. Od Etapu 0 te same kroki (oraz weryfikację)
+wykonują `scripts/backup.sh` i `scripts/verify-backup.sh`.
 
 ## 10. Kryteria ukończenia etapów
 
 | Etap | Kryterium |
 | --- | --- |
-| 0 | Skrypty kopii, weryfikacji, diagnostyki i aktualizacji przetestowane na stosie Docker (pełny cykl zrzut → weryfikacja); testy Compose przechodzą; wszystkie dotychczasowe testy bez regresji; dokumentacja odtworzenia i wycofania |
+| 0 / 0.1 | Skrypty kopii, weryfikacji, odtwarzania, aktualizacji i wycofania przetestowane w symulacji NAS-a: bez Gita, Compose v5.1.3, `compose.nas.yml` z bind mountem bazy, ścieżki ze spacjami (pełny cykl 1.0 → 2.0 → wydanie z migracją → wycofania → kod identyczny z 1.0); testy Compose i skryptów przechodzą; brak regresji; dokumentacja odtworzenia i wycofania. **Wdrożenie na NAS wymaga decyzji użytkownika** |
 | I | Nowe trasy z testami uprawnień; migracja addytywna z testem na danych; health z bazą; retencja w trybie raportu i wykonania; brak regresji panelu i Androida |
 | II | main/sub i PTZ przetestowane atrapą ONVIF/RTSP **oraz** potwierdzone przez użytkownika na kamerze; funkcje bez potwierdzenia sprzętowego oznaczone jako niezweryfikowane |
 | III | MQTT z uwierzytelnianiem tylko w LAN; reguły z testami (wyzwalacz → akcja); dotychczasowe alarmy czujników działają identycznie |

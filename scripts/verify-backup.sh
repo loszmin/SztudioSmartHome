@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 case "${1:-}" in -h|--help) sed -n '2,11p' "$0"; exit 0 ;; esac
-require_cmd docker
+require_cmd docker tar gzip sha256sum awk sed grep cut
 
 SRC="${1:-$(latest_backup_dir)}"
 [ -n "$SRC" ] || die "Nie znaleziono kopii w $SZTUDIO_BACKUP_DIR. Podaj katalog kopii albo plik .dump."
@@ -46,6 +46,9 @@ elif [ -f "$DUMP.sha256" ]; then
         info "[BŁĄD] Suma SHA-256 niezgodna"
         FAIL=1
     fi
+elif [ -n "$DIR" ] && [ -f "$DIR/$SZTUDIO_BACKUP_MARKER" ]; then
+    info "[BŁĄD] Brak pliku SHA256SUMS w kopii utworzonej przez backup.sh"
+    FAIL=1
 else
     warn "Brak sum kontrolnych – pomijam ich sprawdzenie."
 fi
@@ -119,13 +122,48 @@ if ! grep -q '^users ' <<< "$COUNTS"; then
     FAIL=1
 fi
 
+# Dokładne dopasowanie ścieżki w config-files.sha256 (format sha256sum: 64 znaki sumy, 2 spacje, ścieżka).
+in_backup() { awk -v p="$1" 'substr($0, 67) == p { f = 1 } END { exit !f }' "$DIR/config-files.sha256"; }
+
 if [ -n "$DIR" ] && [ -f "$DIR/config.tar.gz" ]; then
-    if tar -tzf "$DIR/config.tar.gz" > /dev/null; then
-        info "[ok] Archiwum konfiguracji czytelne ($(tar -tzf "$DIR/config.tar.gz" | wc -l) elementów)"
-    else
+    if ! tar -tzf "$DIR/config.tar.gz" > /dev/null; then
         info "[BŁĄD] Archiwum konfiguracji uszkodzone"
         FAIL=1
+    elif [ -f "$DIR/config-files.sha256" ]; then
+        # Każdy plik konfiguracji odczytywany z archiwum strumieniowo (bez zapisu sekretów na dysk)
+        # i porównywany z sumą z chwili kopii.
+        cfg_total=0
+        cfg_bad=0
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            sum="${line:0:64}"
+            path="${line:66}"
+            cfg_total=$((cfg_total + 1))
+            got="$(tar -xzOf "$DIR/config.tar.gz" -- "$path" 2> /dev/null | sha256sum | cut -c1-64)"
+            if [ "$got" != "$sum" ]; then
+                info "[BŁĄD] Plik konfiguracji niezgodny lub brakujący w archiwum: $path"
+                cfg_bad=$((cfg_bad + 1))
+            fi
+        done < "$DIR/config-files.sha256"
+        if [ "$cfg_bad" = 0 ]; then
+            info "[ok] Archiwum konfiguracji: $cfg_total plików, treść zgodna z sumami"
+        else
+            FAIL=1
+        fi
+        for req in .env docker-compose.yml docker/nginx/default.conf.template docker/go2rtc.yaml \
+            certs/public/server.crt certs/public/server.key; do
+            in_backup "$req" || { info "[BŁĄD] Brak w kopii: $req"; FAIL=1; }
+        done
+        for opt in compose.nas.yml docker-compose.override.yml certs/ca/sztudio-ca.key certs/public/sztudio-ca.crt; do
+            if in_backup "$opt"; then info "      w kopii: $opt"; fi
+        done
+    else
+        warn "Kopia bez config-files.sha256 (starsza wersja skryptu) – sprawdzono tylko czytelność archiwum."
+        info "[ok] Archiwum konfiguracji czytelne ($(tar -tzf "$DIR/config.tar.gz" | wc -l) elementów)"
     fi
+elif [ -n "$DIR" ] && grep -q '^konfiguracja: tak' "$DIR/manifest.txt" 2> /dev/null; then
+    info "[BŁĄD] Brak config.tar.gz, choć manifest go deklaruje"
+    FAIL=1
 fi
 
 info ""

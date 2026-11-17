@@ -38,6 +38,9 @@ services:
     logging: *logging
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "app.cli", "ensure-certs"]
+    # Usługa jednorazowa – healthcheck odziedziczony z obrazu Core nie ma tu sensu.
+    healthcheck:
+      disable: true
     environment:
       SZTUDIO_TLS_DIR: /certs
       SZTUDIO_TLS_CA_DIR: /ca

@@ -245,3 +245,197 @@ def test_backup_dir_is_read_from_env_file(tmp_path: Path, env_line: str, expecte
         env=env, capture_output=True, text=True, check=True,
     ).stdout
     assert out == expected.format(root=tmp_path)
+
+
+# ---------- Etap 0.1: NAS bez Gita, pliki Compose produkcji, strażnik danych bazy ----------
+
+GIT_FREE_SCRIPTS = ["backup.sh", "verify-backup.sh", "restore.sh", "update.sh", "rollback.sh", "diagnostics.sh"]
+
+
+@pytest.mark.parametrize("name", GIT_FREE_SCRIPTS)
+def test_scripts_do_not_require_git(name: str) -> None:
+    """Na NAS-ie nie ma Gita: Git może być użyty wyłącznie informacyjnie, po sprawdzeniu has_git."""
+    text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.lstrip().startswith("require_cmd"):
+            assert " git" not in line.split("#")[0], f"{name}: require_cmd wymaga gita"
+    code_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+    git_calls = [ln for ln in code_lines if re.search(r"(^|[\s(\"$])git\s", ln)]
+    if git_calls:
+        assert "has_git" in text, f"{name}: wywołuje git bez sprawdzenia has_git"
+    assert not re.search(r"git\s+(merge|fetch|reset|checkout|pull|rev-parse --verify)", "\n".join(code_lines)), name
+
+
+def test_child_scripts_are_called_through_bash() -> None:
+    """Archiwum .zip bywa rozpakowane bez bitu wykonywania – skrypty potomne uruchamiane przez bash."""
+    for name in ("update.sh", "restore.sh", "rollback.sh"):
+        text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        for m in re.finditer(r'^[^#\n]*"\$(?:SCRIPTS|\(dirname[^)]*\))/(\w[\w-]*\.sh)"', text, re.MULTILINE):
+            assert re.search(r'bash\s+"\$', m.group(0)), f"{name}: {m.group(0).strip()}"
+
+
+def bash(script: str, **env: str) -> subprocess.CompletedProcess[str]:
+    base = {k: v for k, v in os.environ.items() if not k.startswith("SZTUDIO_")}
+    return subprocess.run(
+        ["bash", "-c", f'source "{ROOT}/scripts/lib/common.sh"; {script}'],
+        env={**base, **env}, capture_output=True, text=True, check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "protected"),
+    [
+        (".env", True), (".env.local", True), (".env.example", False), ("certs/ca/sztudio-ca.key", True),
+        ("certs/public/server.crt", True), ("backups/x/sztudio.dump", True), ("compose.nas.yml", True),
+        ("docker-compose.override.yml", True), (".sztudio-release/files.txt", True), (".git/config", True),
+        ("docker-compose.yml", False), ("docker/nginx/default.conf.template", False), ("core/app/main.py", False),
+        ("scripts/update.sh", False),
+    ],
+)
+def test_update_never_touches_protected_files(path: str, protected: bool) -> None:
+    out = subprocess.run(
+        ["bash", "-c", f'source "{ROOT}/scripts/lib/common.sh"; not_protected'],
+        input=path + "\n", capture_output=True, text=True, check=True,
+    ).stdout
+    assert (out == "") is protected
+
+
+COMPOSE_BIND = """name: repository
+services:
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - type: bind
+        source: /volume1/Sztudio Smart Home/postgres
+        target: /var/lib/postgresql/data
+        bind: {}
+    healthcheck:
+      test:
+  web:
+    volumes:
+      - type: bind
+        source: /x/certs/public
+        target: /var/lib/postgresql/data
+volumes:
+  db-data:
+    name: repository_db-data
+"""
+
+COMPOSE_VOLUME = """name: repository
+services:
+  core:
+    volumes:
+      - type: bind
+        source: /srv/other
+        target: /data
+  db:
+    volumes:
+      - type: volume
+        source: db-data
+        target: /var/lib/postgresql/data
+        volume: {}
+volumes:
+  db-data:
+    name: repository_db-data
+"""
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [(COMPOSE_BIND, "bind|/volume1/Sztudio Smart Home/postgres"), (COMPOSE_VOLUME, "volume|repository_db-data")],
+)
+def test_db_mount_expected_parses_compose_config(tmp_path: Path, config: str, expected: str) -> None:
+    sample = tmp_path / "config.yml"
+    sample.write_text(config)
+    r = bash(f'compose() {{ cat "{sample}"; }}; db_mount_expected')
+    assert r.stdout.strip() == expected
+
+
+def test_db_mount_guard_aborts_on_mismatch(tmp_path: Path) -> None:
+    """Kontener na /volume1/…/postgres, konfiguracja bez compose.nas.yml (db-data) → przerwanie bez zmian."""
+    sample = tmp_path / "config.yml"
+    sample.write_text(COMPOSE_VOLUME)
+    r = bash(
+        f'compose() {{ cat "{sample}"; }}; db_mount_actual() {{ echo "bind|/volume1/Sztudio Smart Home/postgres"; }}; '
+        "COMPOSE_SOURCE=test; check_db_mount; echo NIE-PRZERWANO"
+    )
+    assert r.returncode != 0
+    assert "NIE-PRZERWANO" not in r.stdout
+    assert "Przerywam bez zmian" in r.stderr
+
+
+def test_db_mount_guard_accepts_match(tmp_path: Path) -> None:
+    sample = tmp_path / "config.yml"
+    sample.write_text(COMPOSE_BIND)
+    r = bash(
+        f'compose() {{ cat "{sample}"; }}; db_mount_actual() {{ echo "bind|/volume1/Sztudio Smart Home/postgres"; }}; '
+        "COMPOSE_SOURCE=test; check_db_mount"
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_compose_files_from_env_with_spaces(tmp_path: Path) -> None:
+    root = tmp_path / "Sztudio Smart Home" / "repository"
+    (root / "scripts" / "lib").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts" / "lib" / "common.sh", root / "scripts" / "lib" / "common.sh")
+    for f in ("docker-compose.yml", "compose.nas.yml"):
+        (root / f).write_text("services: {}\n")
+    r = subprocess.run(
+        ["bash", "-c", f'source "{root}/scripts/lib/common.sh"; _compose_bin() {{ COMPOSE_BIN=(true); }}; '
+                       'resolve_compose; printf "%s\\n" "${COMPOSE_ARGS[@]}"'],
+        env={**{k: v for k, v in os.environ.items() if not k.startswith("SZTUDIO_")},
+             "SZTUDIO_COMPOSE_FILES": "docker-compose.yml:compose.nas.yml"},
+        capture_output=True, text=True, check=True,
+    )
+    assert r.stdout.splitlines() == ["-f", f"{root}/docker-compose.yml", "-f", f"{root}/compose.nas.yml"]
+
+
+def test_unreadable_env_gives_sudo_hint(tmp_path: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root czyta każdy plik – scenariusz sprawdzony w symulacji NAS jako użytkownik 1000")
+    (tmp_path / ".env").write_text("X=1\n")
+    (tmp_path / ".env").chmod(0)
+    r = bash("resolve_compose", SZTUDIO_ROOT=str(tmp_path))
+    assert r.returncode != 0 and "sudo" in r.stderr
+
+
+def test_backup_collects_complete_configuration() -> None:
+    text = (ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    for item in (".env", "compose*.yml", "docker-compose*.yml", "/docker", "/certs", "VERSION"):
+        assert item in text, item
+    for required in ("docker/nginx/default.conf.template", "docker/go2rtc.yaml", "certs/public/server.key"):
+        assert required in text, required
+    assert "config-files.sha256" in text
+    assert "! -readable" in text, "nieczytelne pliki (root) muszą przerwać kopię, a nie zostać pominięte"
+    assert "SZTUDIO_BACKUP_MARKER" in text
+
+
+def test_retention_keeps_rollback_points() -> None:
+    text = (ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    assert '[ -d "$SZTUDIO_BACKUP_DIR/$n/update" ] || echo "$n"' in text
+
+
+def test_restore_swaps_in_one_transaction_with_exit_trap() -> None:
+    text = (ROOT / "scripts" / "restore.sh").read_text(encoding="utf-8")
+    block = text[text.index("BEGIN;"):text.index("COMMIT;")]
+    assert block.count("RENAME TO") == 2
+    assert "trap on_exit EXIT" in text and "trap on_error ERR" not in text
+    assert text.index("SWAPPED=1") > text.index("COMMIT;")
+
+
+def test_update_reverts_files_and_images_on_failure() -> None:
+    text = (ROOT / "scripts" / "update.sh").read_text(encoding="utf-8")
+    assert "trap on_exit EXIT" in text
+    assert 'restore_image_tags "$U/images.txt"' in text
+    build = text.index("if ! compose build")
+    assert text.index("APPLYING=1") < build < text.index("APPLYING=0\ncompose up -d")
+    assert "check_db_mount" in text[build - 400:build]
+
+
+def test_certs_has_no_inherited_healthcheck() -> None:
+    assert SERVICES["certs"]["healthcheck"] == {"disable": True}
+
+
+def test_version_file() -> None:
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?", version)

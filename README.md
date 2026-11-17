@@ -71,11 +71,14 @@ Następnie:
 
 | Polecenie | Działanie |
 | --- | --- |
-| `scripts/backup.sh` | Pełna kopia: baza, `.env`, certyfikaty – [opis](docs/kopie-zapasowe.md) |
-| `scripts/verify-backup.sh` | Próba odtworzenia kopii w tymczasowym kontenerze (bez wpływu na bazę) |
-| `scripts/restore.sh KOPIA` | Odtworzenie bazy z zachowaniem obecnej pod inną nazwą |
-| `scripts/update.sh WERSJA` | Aktualizacja z kopią i instrukcją wycofania – [opis](docs/aktualizacja-i-wycofanie.md) |
-| `scripts/diagnostics.sh` | Raport stanu serwera bez sekretów |
+| `sudo bash scripts/backup.sh` | Pełna kopia: baza, `.env`, certyfikaty, konfiguracja – [opis](docs/kopie-zapasowe.md) |
+| `sudo bash scripts/verify-backup.sh` | Próba odtworzenia kopii w tymczasowym kontenerze (bez wpływu na bazę) |
+| `sudo bash scripts/restore.sh KOPIA` | Odtworzenie bazy z zachowaniem obecnej pod inną nazwą |
+| `sudo bash scripts/update.sh --from WYDANIE` | Aktualizacja z archiwum (bez Gita), z kopią i wycofaniem – [opis](docs/aktualizacja-i-wycofanie.md) |
+| `sudo bash KOPIA/tools/rollback.sh KOPIA` | Wycofanie aktualizacji (polecenie w `ROLLBACK.txt`) |
+| `sudo bash scripts/diagnostics.sh` | Raport stanu serwera bez sekretów |
+
+Skrypty nie wymagają Gita i używają tych samych plików Compose co działający stos (np. `compose.nas.yml`).
 
 Testy konfiguracji i skryptów: `core/.venv/bin/pytest tests/infra`.
 
@@ -162,8 +165,9 @@ ustawienia, praca offline z oznaczaniem nieaktualnych danych. 54 testy JVM + 7 t
 ### Wersja 2.0 – w toku
 
 Gałąź `feature/sztudio-smart-home-2.0`, plan: [docs/SZTUDIO_SMART_HOME_2.0_PLAN.md](docs/SZTUDIO_SMART_HOME_2.0_PLAN.md).
-Etap 0 (kopie zapasowe, odtwarzanie, aktualizacja z wycofaniem, diagnostyka, rotacja logów, healthchecki,
-poprawka 502 po restarcie Core) – sprawdzony na stosie Docker, **nie na NAS-ie**.
+Etap 0 / 0.1 (kopie zapasowe, odtwarzanie, aktualizacja z archiwum i wycofanie bez Gita, diagnostyka, rotacja logów,
+healthchecki, poprawka 502 po restarcie Core) – sprawdzony w symulacji NAS-a (Compose v5.1.3, bind mount bazy,
+bez Gita), **nie na NAS-ie**.
 
 ### Czego jeszcze nie ma
 
